@@ -120,3 +120,24 @@ Ingen forkortede variabelnavne. Undtagelser fanges specifikt (`OSError`, `ValueE
 - Redigering af kategorier og Actions/genvejsmenuer på en web-app
 - Import af en URL direkte fra en kørende browserfane
 - Oversættelse (alle strenge er hardcodede på dansk)
+
+## Undersøgt og fravalgt
+
+**Luk-til-systembakke kan ikke lade sig gøre for en Chromium-PWA.**
+En `--app=`/`--app-id=`-genvej er et almindeligt browservindue uden tray-understøttelse,
+og krydset håndteres inde i browseren. Der er intet flag og ingen indstilling der laver
+"luk → minimér til bakken". Udefra går det heller ikke på Wayland: close-hændelsen går
+direkte til klienten, KWin kan ikke opsnappe den, og der findes ingen protokol til at
+flytte et fremmed vindue ind i systembakken — KWin-vinduesregler har ingen luk-handling.
+På X11 kunne `kdocker`/`alltray` gøre det (de opsnapper `WM_DELETE_WINDOW`), men de virker
+ikke på Wayland-native vinduer, og Chromium sender typisk kommandoen videre til en
+allerede kørende proces, så en wrapper ville dokke det forkerte vindue. Uverificeret.
+
+Eneste rigtige løsning er et program der selv ejer vinduet — Electron, Tauri eller
+QtWebEngine. En QtWebEngine-tilstand i Genvej ville koste både afhængighedsprincippet
+(QtWebEngine ligger ikke på Kinoite som standard) og browserprofilen: logins, udvidelser,
+adgangskoder, synk. Det er prisen ikke værd.
+
+Delvist i dag: `brave://settings/system` → "Fortsæt med at køre baggrundsapps når Brave
+lukkes" holder service workers og notifikationer i live efter vinduet lukkes, men giver
+hverken vindue eller ikon per app.
