@@ -10,7 +10,9 @@ ICON_ROOT="$SHARE_DIR/icons/hicolor"
 
 command -v python3 >/dev/null || { echo "python3 mangler" >&2; exit 1; }
 python3 -c "import PySide6" 2>/dev/null || {
-  echo "PySide6 mangler. Fedora/Bazzite: sudo dnf install python3-pyside6" >&2; exit 1; }
+  echo "PySide6 mangler. Fedora/Bazzite: sudo dnf install python3-pyside6" >&2
+  echo "Ubuntu/Debian: sudo apt install python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets" >&2
+  exit 1; }
 
 install -d "$APP_DIR" "$BIN_DIR" "$SHARE_DIR/applications"
 install -m 644 "$SOURCE_DIR/genvej.py" "$APP_DIR/genvej.py"

@@ -126,8 +126,10 @@ BROWSER_TABLE = [
     ("vivaldi", "Vivaldi", "vivaldi-stable", "com.vivaldi.Vivaldi", "vivaldi",
      ".config/vivaldi", ".var/app/com.vivaldi.Vivaldi/config/vivaldi"),
 ]
-ALT_BINARIES = {"chromium": ["chromium", "chromium-browser"],
+ALT_BINARIES = {"brave": ["brave-browser", "brave"],
+                "chromium": ["chromium", "chromium-browser"],
                 "chrome": ["google-chrome-stable", "google-chrome"]}
+SNAP_BIN = Path("/snap/bin")
 
 
 def flatpak_installed(app_id: str) -> bool:
@@ -139,14 +141,36 @@ def flatpak_installed(app_id: str) -> bool:
         return False
 
 
+def snap_config_dir(snap_name: str, native_cfg: str) -> Path:
+    """Profilmappen for en browser installeret som snap.
+
+    En snap ser ~/snap/<navn>/<revision> som $HOME, så Brave har profilen under
+    current/.config. Chromium-snappen skulle bruge common/ via CHROME_CONFIG_HOME
+    (ikke afprøvet). Den første der findes vinder.
+    """
+    user_dir = HOME / "snap" / snap_name
+    candidates = [user_dir / "current" / native_cfg,
+                  user_dir / "common" / Path(native_cfg).relative_to(".config")]
+    return next((path for path in candidates if path.is_dir()), candidates[0])
+
+
 def detect_browsers() -> list[Browser]:
     found: list[Browser] = []
     for ident, label, binary, app_id, command, native_cfg, flat_cfg in BROWSER_TABLE:
+        native = snap = ""
         for candidate in ALT_BINARIES.get(ident, [binary]):
             path = shutil.which(candidate)
-            if path:
-                found.append(Browser(ident, label, [path], HOME / native_cfg))
-                break
+            if not path:
+                continue
+            if Path(path).parent == SNAP_BIN:
+                snap = snap or path
+            else:
+                native = native or path
+        if native:
+            found.append(Browser(ident, label, [native], HOME / native_cfg))
+        if snap:
+            found.append(Browser(f"{ident}-snap", f"{label} (Snap)", [snap],
+                                 snap_config_dir(Path(snap).name, native_cfg)))
         if flatpak_installed(app_id):
             found.append(Browser(f"{ident}-flatpak", f"{label} (Flatpak)",
                                  ["flatpak", "run", f"--command={command}", app_id],
@@ -188,13 +212,32 @@ class WebApp:
         return Path(self.argv_prefix[-1]).name if self.argv_prefix else "ukendt"
 
 
+def resolve_snap_command(tokens: list[str]) -> list[str]:
+    """Erstat en snaps interne sti med dens launcher i /snap/bin.
+
+    Snap-Brave sætter CHROME_WRAPPER til /snap/brave/<revision>/opt/…, som Chromium
+    bruger i Exec på de PWA'er den installerer (udledt, ikke set i en rigtig fil).
+    Startet udefra kører den uden snappens sandkasse og med den forkerte profil, og
+    den holder op med at virke når revisionen fjernes.
+    """
+    if tokens:
+        parts = Path(tokens[0]).parts
+        if len(parts) > 3 and parts[:2] == ("/", "snap") and parts[2] != "bin":
+            launcher = SNAP_BIN / parts[2]
+            if launcher.exists():
+                return [str(launcher), *tokens[1:]]
+    return tokens
+
+
 def scan_dirs() -> list[Path]:
     """Mapper der kan indeholde web-apps, uden dubletter.
 
     Flatpak-browsere symlinker typisk deres data/applications til
     ~/.local/share/applications, så der skal sammenlignes på resolved sti.
+    Snap-browsere skriver i snappens egen ~/snap/<navn>/current/.local/share.
     """
-    candidates = [APPS_DIR, *sorted((HOME / ".var/app").glob("*/data/applications"))]
+    candidates = [APPS_DIR, *sorted((HOME / ".var/app").glob("*/data/applications")),
+                  *sorted((HOME / "snap").glob("*/current/.local/share/applications"))]
     dirs, seen = [], set()
     for candidate in candidates:
         if not candidate.is_dir():
@@ -214,7 +257,7 @@ def find_web_apps() -> list[WebApp]:
             entry = parse_desktop(path)
             if not entry or "Exec" not in entry:
                 continue
-            tokens = exec_tokens(entry["Exec"])
+            tokens = resolve_snap_command(exec_tokens(entry["Exec"]))
             url = app_id = profile = ""
             split_at = len(tokens)
             for index, token in enumerate(tokens):
@@ -360,6 +403,20 @@ def load_icon(icon_name: str) -> QtGui.QIcon:
         return QtGui.QIcon(icon_name)
     icon = QtGui.QIcon.fromTheme(icon_name)
     return icon if not icon.isNull() else QtGui.QIcon.fromTheme("applications-internet")
+
+
+def add_icon_search_paths(directories: list[Path]) -> None:
+    """Gør icons-mappen ved siden af hver app-mappe synlig for QIcon.fromTheme.
+
+    Snap-browsere lægger PWA-ikonerne i snappens egen .local/share/icons, hvor Qt
+    ellers ikke leder.
+    """
+    paths = QtGui.QIcon.themeSearchPaths()
+    for directory in directories:
+        icons = directory.parent / "icons"
+        if str(icons) not in paths and icons.is_dir():
+            paths.append(str(icons))
+    QtGui.QIcon.setThemeSearchPaths(paths)
 
 
 def refresh_caches() -> None:
@@ -753,6 +810,7 @@ class MainWindow(QtWidgets.QMainWindow):
     def reload(self):
         current = self.current_app()
         remembered = str(current.path) if current else None
+        add_icon_search_paths(scan_dirs())
         self.apps = find_web_apps()
         self.apply_filter()
         if remembered:
@@ -856,7 +914,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not app:
             return
         try:
-            subprocess.Popen(exec_tokens(app.exec_line), start_new_session=True,
+            subprocess.Popen(resolve_snap_command(exec_tokens(app.exec_line)),
+                             start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             self.statusBar().showMessage(f"Startede {app.name}", 5000)
         except OSError as error:

@@ -20,8 +20,9 @@ efter en ændring — programmet køres fra den installerede kopi, ikke fra repo
 
 ## Afhængigheder
 
-Kun `python3` og `PySide6`. Begge findes allerede på Bazzite/Kinoite. Ingen
-tredjepartspakker, intet byggetrin, ingen virtualenv — det er et bevidst valg, så
+Kun `python3` og `PySide6`. Begge findes allerede på Bazzite/Kinoite. På Ubuntu er
+PySide6 delt op i moduler — der skal bruges `python3-pyside6.qtcore`, `.qtgui` og
+`.qtwidgets`. Ingen tredjepartspakker, intet byggetrin, ingen virtualenv — det er et bevidst valg, så
 programmet kan køre direkte på et immutable system uden layering.
 
 ## Kør og test
@@ -50,7 +51,12 @@ PY
 ```
 
 `MainWindow` kan instantieres offscreen, så GUI-opstart, filtrering og
-knap-tilstande kan testes uden skærm.
+knap-tilstande kan testes uden skærm. Finder `detect_browsers()` ingen browser, åbner
+konstruktøren en modal advarsel og testen hænger — patch `QtWidgets.QMessageBox.warning`
+først. Kør med `python3 -u`, ellers går output tabt når `timeout` slår processen ihjel.
+`QIcon.fromTheme()` finder intet under `offscreen` — heller ikke et ikon der ligger rigtigt,
+og uanset `setThemeName()`. Ikonopslag skal testes med den rigtige platform
+(`env -u QT_QPA_PLATFORM`); så længe intet `show()`/`exec()` kaldes, vises der ikke noget.
 
 ## Domæneviden — det der faktisk driller
 
@@ -62,6 +68,19 @@ Punkterne herunder er alle fundet ved at fejle på dem. Lav dem ikke om uden gru
 og sletning fejler på anden runde. `scan_dirs()` deduplikerer derfor på `Path.resolve()`,
 og `find_web_apps()` sammenligner ligeledes resolved stier før den registrerer en
 `twin`. `twins` er stadig relevant hvis en anden browser har en ægte kopi.
+
+**Snap-browsere lever i deres egen hjemmemappe.**
+En strict snap kører med `HOME`, `XDG_CONFIG_HOME` og `XDG_DATA_HOME` flyttet til
+`~/snap/<navn>/<revision>` (set i `/proc/<pid>/environ` på Snap-Brave). Brave har derfor
+profilen i `~/snap/brave/current/.config/BraveSoftware/Brave-Browser` — `BRAVE_CONFIG_HOME`
+peger på `common/`, men profilen ligger ikke der. En gammel `~/.config/BraveSoftware` kan
+godt findes ved siden af og er da forkert. En browser fundet i `/snap/bin` registreres
+som Snap med `snap_config_dir()`, aldrig som systempakke. Chromium-snappens profil i
+`common/chromium` er ikke afprøvet. Uverificeret, men udledt af miljøet: browserens egne
+PWA'er havner i `~/snap/<navn>/current/.local/share/applications` og `…/icons`, som
+KDE-menuen ikke læser, og Exec får den interne `/snap/brave/<revision>/…`-sti fra
+`CHROME_WRAPPER`. `resolve_snap_command()` skifter den ud med `/snap/bin/<navn>` — ellers
+kører browseren uden sandkasse og med den forkerte profil.
 
 **Exec-linjen er ikke bare en streng.**
 `%` skal skrives som `%%` i `Exec` jf. desktop entry-specifikationen — vigtigt fordi

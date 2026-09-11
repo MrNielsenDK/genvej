@@ -24,12 +24,14 @@ git clone <repo> genvej && cd genvej
 ```
 
 Kræver `python3` og `PySide6`. På Fedora, Bazzite og andre atomic-varianter er begge
-med i forvejen; ellers `sudo dnf install python3-pyside6`.
+med i forvejen; ellers `sudo dnf install python3-pyside6`. På Ubuntu og Debian er
+PySide6 delt op i moduler:
+`sudo apt install python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets`.
 
 Afinstallation med `./uninstall.sh`. Dine web-apps bliver liggende.
 
 ## Understøttede browsere
 
-Alle Chromium-baserede — Brave, Chrome, Chromium, Edge og Vivaldi, både som
-systempakke og Flatpak. Firefox understøttes ikke, da den ikke har et tilsvarende
-`--app=`-tilstand.
+Alle Chromium-baserede — Brave, Chrome, Chromium, Edge og Vivaldi, som systempakke
+eller Flatpak. Brave og Chromium også som Snap. Firefox understøttes ikke, da den
+ikke har et tilsvarende `--app=`-tilstand.
