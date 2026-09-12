@@ -12,7 +12,11 @@ den læser `.desktop`-filerne direkte.
 - Opret en web-app ud fra en adresse — vælg browser, profil og ikon
 - Hent ikonet automatisk fra webstedet (favicon, apple-touch-icon eller manifest)
 - Se alle eksisterende web-apps, uanset hvem der har lavet dem
+- Læg en web-app fra skrivebordet ind i programmenuen — Brave installeret som Snap kan
+  kun lægge sine PWA'er på skrivebordet
 - Omdøb og skift ikon, også på browserens egne PWA'er
+- Bestem hvordan appens vindue åbner — halvdele, fjerdedele, maksimeret eller
+  fuldskærm på den skærm du vælger (kræver KDE)
 - Fjern en web-app helt, inklusive dens ikonfiler
 - Åbn browserens app-side i den rigtige profil, når en PWA skal afinstalleres helt
 
