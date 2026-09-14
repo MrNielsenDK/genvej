@@ -4,10 +4,15 @@
 
 Finds both the PWAs the browser installed itself and those created
 manually with --app=, and can remove both again.
+
+Started without arguments it opens its window. The subcommands apply, list
+and remove do the same work without one, so a management tool can roll web
+apps out to a fleet; see cli_main().
 """
 
 from __future__ import annotations
 
+import argparse
 import configparser
 import io
 import json
@@ -28,7 +33,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, Signal
 
-VERSION = "1.0.0"  # install.sh reads this line; releases are tagged v<VERSION>
+VERSION = "1.1.0"  # install.sh reads this line; releases are tagged v<VERSION>
 
 HOME = Path.home()
 APPS_DIR = HOME / ".local/share/applications"
@@ -1466,10 +1471,245 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.warning(self, "Could not open the browser", str(error))
 
 
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+
+# The command line exists so a management tool can roll web apps out to a fleet
+# without anybody in front of the screen. It calls the same functions as the
+# dialog does, so there is one implementation of the .desktop format and the
+# window rules, not two that drift apart.
+
+CLI_MANIFEST_VERSION = 1
+CLI_COMMANDS = ("apply", "list", "remove")
+
+
+def cli_browser(browsers: list[Browser], wanted: str) -> Browser | None:
+    """Pick a browser by its ident. "auto", or nothing, takes the first one found."""
+    if not wanted or wanted == "auto":
+        return browsers[0] if browsers else None
+    exact = next((b for b in browsers if b.ident == wanted), None)
+    if exact:
+        return exact
+    # "brave" also matches a machine where Brave is only there as a snap or a
+    # flatpak, so one manifest covers a fleet that installs browsers differently.
+    return next((b for b in browsers if b.ident.split("-", 1)[0] == wanted), None)
+
+
+def cli_image(spec: str, url: str) -> QtGui.QImage | None:
+    """The icon for an entry. None means "leave the icon alone"."""
+    if spec in ("", "keep"):
+        return None
+    if spec == "auto":
+        image = fetch_icon(url)
+        return None if image.isNull() else image
+    if spec.startswith(("http://", "https://")):
+        try:
+            image = QtGui.QImage.fromData(http_get(spec))
+        except (OSError, ValueError, urllib.error.URLError):
+            return None
+        return None if image.isNull() else image
+    image = QtGui.QImage(spec)
+    return None if image.isNull() else image
+
+
+def cli_window(entry: dict) -> tuple[dict, str]:
+    """Translate the manifest's window block into the keys save_webapp expects.
+
+    Returns the values and a note about whatever had to be left out. A named area
+    is a fraction of the screen, so it only means something against a real one —
+    offscreen Qt invents a 1920x1080 screen, and writing that as though it were
+    the user's would place windows somewhere they never asked for. Explicit
+    pixels, and the maximized and full screen states, need no screen at all.
+    """
+    window = entry.get("window") or {}
+    state = window.get("state", "")
+    values = {"size": None, "position": None,
+              "lock": bool(window.get("lock", False)),
+              "state": state if state in ("", "maximized", "fullscreen") else ""}
+    note = "" if values["state"] == state else f'unknown window state "{state}"'
+
+    for key in ("size", "position"):
+        pair = window.get(key)
+        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+            try:
+                values[key] = (int(pair[0]), int(pair[1]))
+            except (TypeError, ValueError):
+                note = note or f"{key} is not a pair of whole numbers"
+
+    area = window.get("area", "")
+    if not area:
+        return values, note
+
+    fractions = {slugify(label): f for label, f in WINDOW_AREAS}.get(slugify(area))
+    if not fractions:
+        return values, note or f'unknown window area "{area}"'
+    if QtGui.QGuiApplication.platformName() == "offscreen":
+        return values, note or (f'the area "{area}" needs a real screen to measure '
+                                "against; set window.size and window.position instead")
+    screens = QtGui.QGuiApplication.screens()
+    if not screens:
+        return values, note or f'the area "{area}" needs a screen, and none were found'
+    index = int(window.get("screen", 1)) - 1
+    rect = screens[index if 0 <= index < len(screens) else 0].availableGeometry()
+    left, top, width, height = fractions
+    values["size"] = (max(200, round(rect.width() * width)),
+                      max(200, round(rect.height() * height)))
+    values["position"] = (rect.x() + round(rect.width() * left),
+                          rect.y() + round(rect.height() * top))
+    return values, note
+
+
+def cli_find(apps: list[WebApp], url: str, name: str) -> WebApp | None:
+    """Match a manifest entry against what is already installed.
+
+    The URL is the identity, because it survives a rename and the file name does
+    not. A PWA the browser installed keeps its URL inside the browser profile, so
+    there is nothing to match on but the name.
+    """
+    wanted = url.rstrip("/")
+    if wanted:
+        match = next((app for app in apps if app.url and app.url.rstrip("/") == wanted), None)
+        if match:
+            return match
+    return next((app for app in apps if app.name == name), None) if name else None
+
+
+def cli_apply_entry(entry: dict, browsers: list[Browser]) -> dict:
+    """Bring one manifest entry into effect. Never raises — it reports instead."""
+    name, url = entry.get("name", "").strip(), entry.get("url", "").strip()
+    result = {"id": entry.get("id", ""), "name": name, "url": url,
+              "action": "unchanged", "note": ""}
+    apps = find_web_apps()
+    existing = cli_find(apps, url, name)
+
+    if entry.get("state", "present") == "absent":
+        if existing is None:
+            result["note"] = "not installed"
+            return result
+        removed = remove_webapp(existing, browsers)
+        result.update(action="removed", note="; ".join(removed))
+        return result
+
+    if not name or not url:
+        result.update(action="failed", note="both name and url are required")
+        return result
+
+    browser = cli_browser(browsers, entry.get("browser", "auto"))
+    if browser is None:
+        wanted = entry.get("browser", "auto")
+        result.update(action="failed",
+                      note="no Chromium-based browser found" if wanted in ("", "auto")
+                      else f'the browser "{wanted}" is not installed')
+        return result
+
+    values, note = cli_window(entry)
+    values.update(browser=browser, name=name, url=url,
+                  profile=entry.get("profile") or "Default",
+                  image=cli_image(entry.get("icon", "auto" if existing is None else "keep"), url))
+    if existing is not None:
+        values["old_wm_class"] = window_class(existing, browsers)
+
+    try:
+        path, icon_name = save_webapp(values, existing)
+    except (OSError, ValueError) as error:
+        result.update(action="failed", note=str(error))
+        return result
+
+    result.update(action="updated" if existing is not None else "created",
+                  path=str(path), icon=icon_name, browser=browser.ident, note=note)
+    return result
+
+
+def cli_apply(source: str) -> dict:
+    """Apply a manifest read from a file, or from stdin when source is "-"."""
+    try:
+        text = sys.stdin.read() if source == "-" else Path(source).read_text(encoding="utf-8")
+        manifest = json.loads(text)
+    except (OSError, ValueError) as error:
+        return {"ok": False, "error": f"could not read the manifest: {error}", "results": []}
+
+    version = manifest.get("version", CLI_MANIFEST_VERSION)
+    if version != CLI_MANIFEST_VERSION:
+        return {"ok": False,
+                "error": f"manifest version {version} is not supported by Genvej {VERSION}",
+                "results": []}
+
+    browsers = detect_browsers()
+    results = [cli_apply_entry(entry, browsers) for entry in manifest.get("webapps", [])]
+    return {"ok": not any(r["action"] == "failed" for r in results),
+            "genvej": VERSION,
+            "browsers": [browser.ident for browser in browsers],
+            "results": results}
+
+
+def cli_list() -> dict:
+    browsers = detect_browsers()
+    return {"ok": True, "genvej": VERSION,
+            "browsers": [browser.ident for browser in browsers],
+            "webapps": [{"name": app.name, "url": app.url, "app_id": app.app_id,
+                         "profile": app.profile, "path": str(app.path),
+                         "icon": app.icon, "managed": app.managed, "kind": app.kind,
+                         "browser": app.browser_label(browsers),
+                         "on_desktop": app.on_desktop,
+                         "window": window_summary(app, browsers)}
+                        for app in find_web_apps()]}
+
+
+def cli_remove(url: str, name: str) -> dict:
+    browsers = detect_browsers()
+    app = cli_find(find_web_apps(), url, name)
+    if app is None:
+        return {"ok": False, "error": "no web app matched", "removed": []}
+    return {"ok": True, "genvej": VERSION, "name": app.name, "url": app.url,
+            "removed": remove_webapp(app, browsers)}
+
+
+def cli_main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="genvej",
+        description="Manage web apps without the graphical interface.")
+    parser.add_argument("--version", action="version", version=f"Genvej {VERSION}")
+    commands = parser.add_subparsers(dest="command", required=True)
+
+    apply_cmd = commands.add_parser(
+        "apply", help="create, update and remove web apps from a JSON manifest")
+    apply_cmd.add_argument("--manifest", required=True,
+                           help='path to the manifest, or "-" for standard input')
+
+    commands.add_parser("list", help="list every web app found, as JSON")
+
+    remove_cmd = commands.add_parser("remove", help="remove one web app")
+    target = remove_cmd.add_mutually_exclusive_group(required=True)
+    target.add_argument("--url", default="", help="the web app's URL")
+    target.add_argument("--name", default="", help="the web app's name")
+
+    args = parser.parse_args(argv)
+    if args.command == "apply":
+        report = cli_apply(args.manifest)
+    elif args.command == "list":
+        report = cli_list()
+    else:
+        report = cli_remove(args.url, args.name)
+
+    json.dump(report, sys.stdout, indent=2)
+    sys.stdout.write("\n")
+    return 0 if report.get("ok") else 1
+
+
 def main():
     if "--version" in sys.argv[1:]:
         print(f"Genvej {VERSION}")
         return
+    if sys.argv[1:2] and sys.argv[1] in CLI_COMMANDS:
+        # Qt is still needed — the icons are QImages — but nothing is shown, so
+        # fall back to the offscreen platform when there is no session to draw
+        # into. A caller that does have one keeps it, and then a named window
+        # area can be measured against the real screen.
+        if not os.environ.get("WAYLAND_DISPLAY") and not os.environ.get("DISPLAY"):
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        QtGui.QGuiApplication(sys.argv[:1])
+        sys.exit(cli_main(sys.argv[1:]))
     QtWidgets.QApplication.setDesktopFileName("genvej")
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Genvej")

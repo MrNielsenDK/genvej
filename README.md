@@ -22,6 +22,8 @@ themselves; Genvej finds all of them, because it reads the `.desktop` files dire
 - Remove a web app completely, including its icon files and window rule
 - Open the browser's apps page in the right profile, for when a PWA needs to be
   uninstalled in the browser as well
+- Roll web apps out from the command line, so a management tool can deploy them
+  across a fleet
 
 <p align="center">
   <img src="docs/editor.png" alt="The editor dialog with name, URL, browser, profile, icon and window settings" width="480">
@@ -62,6 +64,15 @@ cd genvej-*/
 The installer puts everything under `~/.local` and does not need root. Start Genvej from
 the application menu or by running `genvej`. The unpacked folder can be deleted afterwards.
 
+To install Genvej once for everybody on the machine — including users created later —
+run it with `--system`, which installs into `/usr/local` and needs root:
+
+```bash
+sudo ./install.sh --system
+```
+
+`--prefix=DIR` installs the same layout somewhere else.
+
 To run the latest development version instead, clone the repository:
 
 ```bash
@@ -79,6 +90,60 @@ leaves your web apps and window rules alone. Check which version you have with
 ### Uninstalling
 
 Run `./uninstall.sh` from the unpacked folder or clone. Your web apps are left in place.
+It takes the same `--system` and `--prefix=DIR` options as the installer.
+
+## Command line
+
+The same work the window does is available without one, so web apps can be deployed
+by a management tool. Every subcommand writes JSON to standard output and exits
+non-zero if anything failed.
+
+```bash
+genvej list                        # every web app found
+genvej apply --manifest apps.json  # create, update and remove from a manifest
+genvej remove --url https://intranet.example.com/
+```
+
+A manifest looks like this:
+
+```json
+{
+  "version": 1,
+  "webapps": [
+    {
+      "id": "intranet",
+      "name": "Intranet",
+      "url": "https://intranet.example.com/",
+      "browser": "brave",
+      "profile": "Default",
+      "icon": "auto",
+      "window": { "state": "maximized" }
+    },
+    {
+      "id": "old-timesheet",
+      "name": "Timesheet",
+      "url": "https://timesheet.example.com/",
+      "state": "absent"
+    }
+  ]
+}
+```
+
+Only `name` and `url` are required. `browser` takes a browser's ident — `brave`,
+`chrome`, `chromium`, `edge`, `vivaldi`, optionally suffixed `-snap` or `-flatpak` —
+and `auto`, the default, takes whichever Chromium-based browser is installed; a bare
+`brave` also matches the snap and the flatpak, so one manifest covers a mixed fleet.
+`icon` is `auto` to fetch it from the site, a URL, a path, or `keep` to leave it alone.
+`state` is `present` (the default) or `absent`. Applying the same manifest twice
+changes nothing the second time: entries are matched on their URL, so a renamed web
+app is still recognised.
+
+The `window` block takes `state` (`maximized` or `fullscreen`), explicit `size` and
+`position` as `[x, y]` pixel pairs, `lock` to force the geometry rather than remember
+it, and `area` with `screen` for a named fraction such as `Left half`. A named area is
+measured against a real screen, so it is skipped — and said so in the output — when
+Genvej runs with no session to measure, as it does when a management tool applies the
+manifest in the background. Explicit pixels and the two states work either way.
 
 ## Supported browsers
 
