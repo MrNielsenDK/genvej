@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tegner Genvejs programikon og skriver det i brugerens hicolor-tema."""
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Draws Genvej's application icon and writes it into the user's hicolor theme."""
 
 import sys
 from pathlib import Path
@@ -58,7 +59,7 @@ def main() -> None:
         target.mkdir(parents=True, exist_ok=True)
         image.scaled(size, size, Qt.KeepAspectRatio,
                      Qt.SmoothTransformation).save(str(target / "genvej.png"), "PNG")
-    print(f"skrev genvej.png i {len(SIZES)} størrelser under {root}")
+    print(f"wrote genvej.png in {len(SIZES)} sizes under {root}")
 
 
 if __name__ == "__main__":

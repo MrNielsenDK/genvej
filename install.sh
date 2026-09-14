@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installerer Genvej i brugerens hjemmemappe. Kræver ingen root.
+# Installs Genvej in the user's home directory. Does not need root.
 set -euo pipefail
 
 SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,9 +8,9 @@ BIN_DIR="$HOME/.local/bin"
 APP_DIR="$SHARE_DIR/genvej"
 ICON_ROOT="$SHARE_DIR/icons/hicolor"
 
-command -v python3 >/dev/null || { echo "python3 mangler" >&2; exit 1; }
+command -v python3 >/dev/null || { echo "python3 is missing" >&2; exit 1; }
 python3 -c "import PySide6" 2>/dev/null || {
-  echo "PySide6 mangler. Fedora/Bazzite: sudo dnf install python3-pyside6" >&2
+  echo "PySide6 is missing. Fedora/Bazzite: sudo dnf install python3-pyside6" >&2
   echo "Ubuntu/Debian: sudo apt install python3-pyside6.qtcore python3-pyside6.qtgui python3-pyside6.qtwidgets" >&2
   exit 1; }
 
@@ -30,5 +30,5 @@ command -v update-desktop-database >/dev/null && update-desktop-database "$SHARE
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$ICON_ROOT" 2>/dev/null || true
 command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 --noincremental 2>/dev/null || true
 
-echo "Genvej installeret. Start med 'genvej' eller fra programmenuen."
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "Bemærk: $BIN_DIR ligger ikke i PATH." ;; esac
+echo "Genvej installed. Start it with 'genvej' or from the application menu."
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "Note: $BIN_DIR is not in your PATH." ;; esac

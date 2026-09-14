@@ -2,12 +2,14 @@
 Type=Application
 Version=1.5
 Name=Genvej
-GenericName=Web-apps
-Comment=Opret og fjern web-apps (PWA'er) på skrivebordet
+GenericName=Web App Manager
+GenericName[da]=Web-apps
+Comment=Create, edit and remove web apps (PWAs) on the desktop
+Comment[da]=Opret og fjern web-apps (PWA'er) på skrivebordet
 Exec=genvej
 Icon=genvej
 Terminal=false
 StartupNotify=true
 StartupWMClass=genvej
 Categories=Settings;DesktopSettings;
-Keywords=pwa;webapp;web;app;genvej;browser;
+Keywords=pwa;webapp;web;app;shortcut;genvej;browser;

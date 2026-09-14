@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Genvej — opret, rediger og fjern web-apps (PWA'er) på skrivebordet.
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Genvej — create, edit and remove web apps (PWAs) on the desktop.
 
-Finder både de PWA'er browseren selv har installeret og dem der er lavet
-manuelt med --app=, og kan fjerne begge dele igen.
+Finds both the PWAs the browser installed itself and those created
+manually with --app=, and can remove both again.
 """
 
 from __future__ import annotations
@@ -38,11 +39,11 @@ UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 
 
 # --------------------------------------------------------------------------
-# .desktop-håndtering
+# .desktop handling
 # --------------------------------------------------------------------------
 
 def parse_desktop(path: Path) -> dict | None:
-    """Læs [Desktop Entry]-gruppen. Actions-grupper ignoreres."""
+    """Read the [Desktop Entry] group. Actions groups are ignored."""
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -63,7 +64,7 @@ def parse_desktop(path: Path) -> dict | None:
 
 
 def exec_tokens(exec_line: str) -> list[str]:
-    """Split en Exec-linje til argv, uden field codes og med %% pakket ud."""
+    """Split an Exec line into argv, without field codes and with %% unescaped."""
     line = exec_line.replace("%%", "\x00")
     try:
         tokens = shlex.split(line)
@@ -73,7 +74,7 @@ def exec_tokens(exec_line: str) -> list[str]:
 
 
 def build_exec(tokens: list[str]) -> str:
-    """Byg en Exec-linje. % skal escapes som %% jf. specifikationen."""
+    """Build an Exec line. % must be escaped as %% according to the specification."""
     return " ".join(shlex.quote(t) for t in tokens).replace("%", "%%")
 
 
@@ -83,7 +84,7 @@ def slugify(name: str) -> str:
 
 
 # --------------------------------------------------------------------------
-# Browsere og profiler
+# Browsers and profiles
 # --------------------------------------------------------------------------
 
 @dataclass
@@ -95,7 +96,7 @@ class Browser:
     wm_prefix: str = ""
 
     def profiles(self) -> list[tuple[str, str]]:
-        """[(mappenavn, visningsnavn)] læst af browserens Local State."""
+        """[(directory name, display name)] read from the browser's Local State."""
         if not self.config_dir or not self.config_dir.is_dir():
             return [("Default", "Default")]
         found: list[tuple[str, str]] = []
@@ -117,8 +118,8 @@ class Browser:
         return found or [("Default", "Default")]
 
 
-# (ident, label, binærnavn, flatpak-id, flatpak-kommando, konfigsti under $HOME,
-#  flatpak-konfigsti, præfiks i vinduets app-id)
+# (ident, label, binary name, flatpak id, flatpak command, config path under $HOME,
+#  flatpak config path, prefix of the window's app id)
 BROWSER_TABLE = [
     ("brave", "Brave", "brave-browser", "com.brave.Browser", "brave",
      ".config/BraveSoftware/Brave-Browser",
@@ -148,11 +149,11 @@ def flatpak_installed(app_id: str) -> bool:
 
 
 def snap_config_dir(snap_name: str, native_cfg: str) -> Path:
-    """Profilmappen for en browser installeret som snap.
+    """The profile directory of a browser installed as a snap.
 
-    En snap ser ~/snap/<navn>/<revision> som $HOME, så Brave har profilen under
-    current/.config. Chromium-snappen skulle bruge common/ via CHROME_CONFIG_HOME
-    (ikke afprøvet). Den første der findes vinder.
+    A snap sees ~/snap/<name>/<revision> as $HOME, so Brave keeps its profile under
+    current/.config. The Chromium snap is supposed to use common/ via CHROME_CONFIG_HOME
+    (not tested). The first one that exists wins.
     """
     user_dir = HOME / "snap" / snap_name
     candidates = [user_dir / "current" / native_cfg,
@@ -185,7 +186,7 @@ def detect_browsers() -> list[Browser]:
 
 
 # --------------------------------------------------------------------------
-# Fundne web-apps
+# Discovered web apps
 # --------------------------------------------------------------------------
 
 @dataclass
@@ -209,8 +210,8 @@ class WebApp:
     @property
     def kind(self) -> str:
         if self.browser_installed:
-            return "Installeret af browseren"
-        return "Oprettet med Genvej" if self.managed else "Oprettet manuelt"
+            return "Installed by the browser"
+        return "Created with Genvej" if self.managed else "Created manually"
 
     @property
     def on_desktop(self) -> bool:
@@ -223,16 +224,16 @@ class WebApp:
         browser = self.find_browser(browsers)
         if browser:
             return browser.label
-        return Path(self.argv_prefix[-1]).name if self.argv_prefix else "ukendt"
+        return Path(self.argv_prefix[-1]).name if self.argv_prefix else "unknown"
 
 
 def resolve_snap_command(tokens: list[str]) -> list[str]:
-    """Erstat en snaps interne sti med dens launcher i /snap/bin.
+    """Replace a snap's internal path with its launcher in /snap/bin.
 
-    Snap-Brave sætter CHROME_WRAPPER til /snap/brave/<revision>/opt/…, som Chromium
-    bruger i Exec på de PWA'er den installerer. Startet udefra kører den uden snappens
-    sandkasse og med den forkerte profil, og den holder op med at virke når revisionen
-    fjernes.
+    Snap Brave sets CHROME_WRAPPER to /snap/brave/<revision>/opt/…, which Chromium
+    uses in Exec for the PWAs it installs. Started from outside, the browser runs without
+    the snap's sandbox and with the wrong profile, and it stops working once the
+    revision is removed.
     """
     if tokens:
         parts = Path(tokens[0]).parts
@@ -244,9 +245,9 @@ def resolve_snap_command(tokens: list[str]) -> list[str]:
 
 
 def resolve_snap_exec(exec_value: str) -> str:
-    """Som resolve_snap_command, men på en rå Exec-værdi.
+    """Like resolve_snap_command, but on a raw Exec value.
 
-    Kun første ord skiftes ud, så field codes som %U og citeringen bevares.
+    Only the first word is replaced, so field codes such as %U and the quoting are kept.
     """
     head, separator, rest = exec_value.partition(" ")
     launcher = resolve_snap_command([head])[0]
@@ -254,7 +255,7 @@ def resolve_snap_exec(exec_value: str) -> str:
 
 
 def desktop_dir() -> Path:
-    """Skrivebordet fra user-dirs.dirs — mappenavnet afhænger af sproget."""
+    """The desktop from user-dirs.dirs — the directory name depends on the language."""
     try:
         text = (HOME / ".config/user-dirs.dirs").read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -264,11 +265,11 @@ def desktop_dir() -> Path:
 
 
 def scan_dirs() -> list[Path]:
-    """Mapper der kan indeholde web-apps, uden dubletter.
+    """Directories that may contain web apps, without duplicates.
 
-    Flatpak-browsere symlinker typisk deres data/applications til
-    ~/.local/share/applications, så der skal sammenlignes på resolved sti.
-    Skrivebordet er med, fordi Snap-Brave kun kan lægge sine PWA'er dér.
+    Flatpak browsers typically symlink their data/applications to
+    ~/.local/share/applications, so paths must be compared after resolving them.
+    The desktop is included because Snap Brave can only put its PWAs there.
     """
     candidates = [APPS_DIR, *sorted((HOME / ".var/app").glob("*/data/applications")),
                   desktop_dir()]
@@ -326,11 +327,11 @@ def find_web_apps() -> list[WebApp]:
 
 
 # --------------------------------------------------------------------------
-# Ikoner
+# Icons
 # --------------------------------------------------------------------------
 
 class LinkScraper(HTMLParser):
-    """Opsamler <base href> og alle <link rel=...icon...>/manifest."""
+    """Collects <base href> and every <link rel=...icon...>/manifest."""
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -366,7 +367,7 @@ def http_get(url: str, timeout: int = 20) -> bytes:
 
 
 def fetch_icon(page_url: str) -> QtGui.QImage:
-    """Hent det største tilgængelige ikon for et websted."""
+    """Fetch the largest available icon for a website."""
     candidates: list[tuple[int, str]] = []
     base = page_url
     try:
@@ -388,7 +389,7 @@ def fetch_icon(page_url: str) -> QtGui.QImage:
                     candidates.append((int(match.group(1)) if match else 0,
                                        urllib.parse.urljoin(manifest_url, src)))
             except (OSError, ValueError, urllib.error.URLError):
-                pass  # mange SPA'er svarer med index.html på manifest-stien
+                pass  # many SPAs answer with index.html on the manifest path
     except (OSError, ValueError, urllib.error.URLError):
         pass
 
@@ -406,7 +407,7 @@ def fetch_icon(page_url: str) -> QtGui.QImage:
 
 
 def install_icon(image: QtGui.QImage, icon_name: str) -> None:
-    """Skriv ikonet i alle relevante størrelser i brugerens hicolor-tema."""
+    """Write the icon in every relevant size into the user's hicolor theme."""
     source = image.convertToFormat(QtGui.QImage.Format_RGBA8888)
     for size in ICON_SIZES:
         if size > 256 or (size > source.width() and size > 256):
@@ -418,7 +419,7 @@ def install_icon(image: QtGui.QImage, icon_name: str) -> None:
 
 
 def remove_icons(icon_name: str) -> int:
-    """Fjern kun ikoner der ligger i brugerens eget hicolor-tema."""
+    """Only remove icons that live in the user's own hicolor theme."""
     if not icon_name or "/" in icon_name:
         return 0
     removed = 0
@@ -441,7 +442,7 @@ def load_icon(icon_name: str) -> QtGui.QIcon:
 
 
 def browser_pwa_icon(browser: Browser, profile: str, app_id: str) -> QtGui.QImage:
-    """Det største ikon browseren selv har gemt for en PWA i profilen."""
+    """The largest icon the browser itself has stored for a PWA in the profile."""
     if not browser.config_dir:
         return QtGui.QImage()
     icons = browser.config_dir / profile / "Web Applications/Manifest Resources" / app_id / "Icons"
@@ -467,36 +468,36 @@ def refresh_caches() -> None:
 
 
 # --------------------------------------------------------------------------
-# Vinduesregler (KWin)
+# Window rules (KWin)
 # --------------------------------------------------------------------------
 
-# KWin skriver hver egenskab som en værdi plus en regeltype. "Husk" sætter
-# geometrien når vinduet åbnes og lader brugeren ændre den bagefter, "Fastlås"
-# holder den fast. "Anvend ved åbning" (1) er afprøvet og gør intet ved en
-# Chromium-app — browseren sætter selv sin geometri, og kun 2 og 3 vinder over den.
+# KWin stores each property as a value plus a rule type. "Remember" sets the
+# geometry when the window opens and lets the user change it afterwards, "Force"
+# keeps it fixed. "Apply initially" (1) has been tested and does nothing to a
+# Chromium app — the browser sets its own geometry, and only 2 and 3 win over it.
 REMEMBER = 2
 FORCE = 3
-EXACT_MATCH = 1  # wmclassmatch: nøjagtigt match, ikke understreng eller regulært udtryk
-NORMAL_WINDOW = 1  # types-masken, så reglen ikke rammer pop-op-vinduer og dialoger
+EXACT_MATCH = 1  # wmclassmatch: exact match, not substring or regular expression
+NORMAL_WINDOW = 1  # the types mask, so the rule doesn't hit popups and dialogs
 
-# Hvordan vinduet åbner. Maksimeret og fuldskærm sætter selv størrelsen, så kun
-# placeringen skrives ved siden af — den bestemmer hvilken skærm vinduet lander på.
-WINDOW_STATES = [("Normal", ""), ("Maksimeret", "maximized"), ("Fuldskærm", "fullscreen")]
+# How the window opens. Maximized and full screen set the size themselves, so only
+# the position is written alongside — it decides which screen the window lands on.
+WINDOW_STATES = [("Normal", ""), ("Maximized", "maximized"), ("Full screen", "fullscreen")]
 STATE_KEYS = {"fullscreen": ("fullscreen",), "maximized": ("maximizehoriz", "maximizevert")}
 
-# Hurtigvalg i dialogen: (etiket, (venstre, top, bredde, højde) som andele af
-# skærmens brugbare område, altså uden proceslinje og paneler).
+# Quick picks in the dialog: (label, (left, top, width, height) as fractions of
+# the screen's usable area, i.e. without taskbar and panels).
 WINDOW_AREAS = [
-    ("Hele skærmen", (0, 0, 1, 1)),
-    ("Venstre halvdel", (0, 0, 1 / 2, 1)),
-    ("Højre halvdel", (1 / 2, 0, 1 / 2, 1)),
-    ("Øverste halvdel", (0, 0, 1, 1 / 2)),
-    ("Nederste halvdel", (0, 1 / 2, 1, 1 / 2)),
-    ("Øverste venstre fjerdedel", (0, 0, 1 / 2, 1 / 2)),
-    ("Øverste højre fjerdedel", (1 / 2, 0, 1 / 2, 1 / 2)),
-    ("Nederste venstre fjerdedel", (0, 1 / 2, 1 / 2, 1 / 2)),
-    ("Nederste højre fjerdedel", (1 / 2, 1 / 2, 1 / 2, 1 / 2)),
-    ("Midten, to tredjedele", (1 / 6, 1 / 6, 2 / 3, 2 / 3)),
+    ("Whole screen", (0, 0, 1, 1)),
+    ("Left half", (0, 0, 1 / 2, 1)),
+    ("Right half", (1 / 2, 0, 1 / 2, 1)),
+    ("Top half", (0, 0, 1, 1 / 2)),
+    ("Bottom half", (0, 1 / 2, 1, 1 / 2)),
+    ("Top left quarter", (0, 0, 1 / 2, 1 / 2)),
+    ("Top right quarter", (1 / 2, 0, 1 / 2, 1 / 2)),
+    ("Bottom left quarter", (0, 1 / 2, 1 / 2, 1 / 2)),
+    ("Bottom right quarter", (1 / 2, 1 / 2, 1 / 2, 1 / 2)),
+    ("Center, two thirds", (1 / 6, 1 / 6, 2 / 3, 2 / 3)),
 ]
 
 
@@ -505,15 +506,15 @@ def kwin_rules_file() -> Path:
 
 
 def kwin_available() -> bool:
-    """Vinduesregler findes kun i KDE's vindueshåndtering."""
+    """Window rules only exist in KDE's window manager."""
     return "kde" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
 
 def chromium_app_name(url: str, app_id: str) -> str:
-    """Det appnavn Chromium danner ud fra en web-app.
+    """The app name Chromium derives for a web app.
 
-    For en browserinstalleret PWA er det app-id'et, for --app= er det vært plus
-    sti — skema, portnummer, query og fragment indgår ikke.
+    For a browser-installed PWA it is the app id, for --app= it is host plus
+    path — scheme, port, query and fragment are not part of it.
     """
     if app_id:
         return app_id
@@ -522,11 +523,11 @@ def chromium_app_name(url: str, app_id: str) -> str:
 
 
 def wm_class_name(browser: Browser | None, url: str, app_id: str, profile: str) -> str:
-    """Vinduets app-id: <præfiks>-<appnavn>-<profil>, alt uden for [A-Za-z0-9_.-] som _.
+    """The window's app id: <prefix>-<app name>-<profile>, anything outside [A-Za-z0-9_.-] as _.
 
-    Målt på Brave: --app=https://outlook.office.com/mail/ giver app-id'et
-    brave-outlook.office.com__mail_-Default. --class= slår ikke igennem på selve
-    app-vinduet, så det er den her streng en vinduesregel skal matche.
+    Measured on Brave: --app=https://outlook.office.com/mail/ gives the app id
+    brave-outlook.office.com__mail_-Default. --class= does not reach the app window
+    itself, so this is the string a window rule has to match.
     """
     if not browser or not browser.wm_prefix:
         return ""
@@ -535,10 +536,10 @@ def wm_class_name(browser: Browser | None, url: str, app_id: str, profile: str) 
 
 
 def window_class(app: WebApp, browsers: list[Browser]) -> str:
-    """App-id'et for en fundet web-apps vindue.
+    """The app id of a discovered web app's window.
 
-    Browserens egne genveje har det allerede i StartupWMClass. For resten udledes
-    det, for Genvejs ældre filer skrev ikonnavnet der, og det matcher intet vindue.
+    The browser's own shortcuts already have it in StartupWMClass. For the rest it is
+    derived, since older Genvej files wrote the icon name there, which matches no window.
     """
     if app.browser_installed and app.wm_class:
         return app.wm_class
@@ -546,14 +547,14 @@ def window_class(app: WebApp, browsers: list[Browser]) -> str:
 
 
 def rule_group(wm_class: str) -> str:
-    """Fast gruppenavn pr. app-id — KWin navngiver selv sine regelgrupper med UUID'er."""
+    """Stable group name per app id — KWin names its own rule groups with UUIDs."""
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"genvej:{wm_class}"))
 
 
 def load_kwin_rules() -> configparser.RawConfigParser:
-    """Læs kwinrulesrc. Filen deles med KDE's egen regeleditor og andres regler."""
+    """Read kwinrulesrc. The file is shared with KDE's own rule editor and other rules."""
     parser = configparser.RawConfigParser(strict=False)
-    parser.optionxform = str  # KConfig-nøgler er versalfølsomme
+    parser.optionxform = str  # KConfig keys are case-sensitive
     path = kwin_rules_file()
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -562,7 +563,7 @@ def load_kwin_rules() -> configparser.RawConfigParser:
     try:
         parser.read_string(text)
     except configparser.Error as error:
-        raise ValueError(f"{path} kunne ikke læses: {error}") from error
+        raise ValueError(f"{path} could not be read: {error}") from error
     return parser
 
 
@@ -575,7 +576,7 @@ def save_kwin_rules(parser: configparser.RawConfigParser) -> None:
 
 
 def list_rule(parser: configparser.RawConfigParser, group: str, listed: bool) -> None:
-    """Hold [General] rules/count i sync uden at røre de regler andre har lavet."""
+    """Keep [General] rules/count in sync without touching rules made by others."""
     if not parser.has_section("General"):
         parser.add_section("General")
     names = [name for name in parser["General"].get("rules", "").split(",") if name]
@@ -588,7 +589,7 @@ def list_rule(parser: configparser.RawConfigParser, group: str, listed: bool) ->
 
 
 def read_window_rule(wm_class: str) -> dict:
-    """Reglens "size" og "position" som talpar, plus "state" og "lock"."""
+    """The rule's "size" and "position" as integer pairs, plus "state" and "lock"."""
     if not wm_class:
         return {}
     try:
@@ -617,7 +618,7 @@ def write_window_rule(wm_class: str, name: str,
                       size: tuple[int, int] | None,
                       position: tuple[int, int] | None,
                       lock: bool = False, state: str = "") -> None:
-    """Skriv — eller fjern, hvis intet er sat — reglen for ét app-id."""
+    """Write — or remove, if nothing is set — the rule for one app id."""
     if not wm_class:
         return
     parser = load_kwin_rules()
@@ -659,12 +660,11 @@ def remove_window_rule(wm_class: str) -> None:
 
 
 def kwin_reconfigure() -> None:
-    """Bed KWin læse kwinrulesrc igen.
+    """Ask KWin to read kwinrulesrc again.
 
-    Metoden hedder reconfigure — reloadConfig findes ikke på KWin 6. Reglen slår
-    kun igennem på vinduer der åbnes bagefter; et vindue der allerede står der
-    bliver hvor det er. Uden qdbus eller dbus-send virker reglen først næste gang
-    der logges ind.
+    The method is called reconfigure — reloadConfig does not exist on KWin 6. The rule
+    only takes effect on windows opened afterwards; a window that is already open stays
+    where it is. Without qdbus or dbus-send the rule only takes effect at the next login.
     """
     for tool in ("qdbus6", "qdbus-qt6", "qdbus"):
         if shutil.which(tool):
@@ -683,7 +683,7 @@ def kwin_reconfigure() -> None:
 
 
 # --------------------------------------------------------------------------
-# Redigeringsdialog
+# Editor dialog
 # --------------------------------------------------------------------------
 
 class IconFetcher(QtCore.QThread):
@@ -704,13 +704,13 @@ class EditorDialog(QtWidgets.QDialog):
         self.app = app
         self.image: QtGui.QImage | None = None
         self.fetcher: IconFetcher | None = None
-        self.existing_class = ""  # app-id'et før redigeringen, så en gammel regel kan ryddes
-        self.setWindowTitle("Rediger web-app" if app else "Ny web-app")
+        self.existing_class = ""  # the app id before editing, so an old rule can be cleaned up
+        self.setWindowTitle("Edit web app" if app else "New web app")
         self.setMinimumWidth(520)
 
         self.name_edit = QtWidgets.QLineEdit()
         self.url_edit = QtWidgets.QLineEdit()
-        self.url_edit.setPlaceholderText("https://eksempel.dk/sti")
+        self.url_edit.setPlaceholderText("https://example.com/path")
         self.browser_box = QtWidgets.QComboBox()
         self.profile_box = QtWidgets.QComboBox()
         for browser in browsers:
@@ -721,8 +721,8 @@ class EditorDialog(QtWidgets.QDialog):
         self.icon_label.setFixedSize(72, 72)
         self.icon_label.setAlignment(Qt.AlignCenter)
         self.icon_label.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        self.fetch_button = QtWidgets.QPushButton("Hent fra webstedet")
-        self.file_button = QtWidgets.QPushButton("Vælg fil…")
+        self.fetch_button = QtWidgets.QPushButton("Fetch from website")
+        self.file_button = QtWidgets.QPushButton("Choose file…")
         self.fetch_button.clicked.connect(self.fetch)
         self.file_button.clicked.connect(self.choose_file)
 
@@ -736,11 +736,11 @@ class EditorDialog(QtWidgets.QDialog):
         icon_row.addStretch()
 
         form = QtWidgets.QFormLayout()
-        form.addRow("Navn:", self.name_edit)
-        form.addRow("Adresse:", self.url_edit)
+        form.addRow("Name:", self.name_edit)
+        form.addRow("URL:", self.url_edit)
         form.addRow("Browser:", self.browser_box)
-        form.addRow("Profil:", self.profile_box)
-        form.addRow("Ikon:", icon_row)
+        form.addRow("Profile:", self.profile_box)
+        form.addRow("Icon:", icon_row)
 
         self.window_group = self.build_window_group()
 
@@ -750,8 +750,8 @@ class EditorDialog(QtWidgets.QDialog):
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
-        buttons.button(QtWidgets.QDialogButtonBox.Save).setText("Gem")
-        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Annullér")
+        buttons.button(QtWidgets.QDialogButtonBox.Save).setText("Save")
+        buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("Cancel")
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
@@ -768,31 +768,31 @@ class EditorDialog(QtWidgets.QDialog):
             self.update_preview(QtGui.QIcon.fromTheme("applications-internet").pixmap(64, 64))
 
     def build_window_group(self) -> QtWidgets.QGroupBox:
-        """Størrelse og placering af appens vindue, håndhævet af en KWin-regel.
+        """Size and position of the app's window, enforced by a KWin rule.
 
-        Browseren kan ikke selv: --window-size gælder kun når genvejen rent faktisk
-        starter browseren, og --window-position ignoreres på Wayland.
+        The browser cannot do it itself: --window-size only applies when the shortcut
+        actually starts the browser, and --window-position is ignored on Wayland.
         """
-        group = QtWidgets.QGroupBox("Vindue")
+        group = QtWidgets.QGroupBox("Window")
         self.screen_box = QtWidgets.QComboBox()
         primary = QtGui.QGuiApplication.primaryScreen()
         for number, screen in enumerate(QtGui.QGuiApplication.screens(), start=1):
             area = screen.availableGeometry()
-            label = f"Skærm {number} — {area.width()}×{area.height()}"
-            self.screen_box.addItem(label + (" (primær)" if screen is primary else ""), area)
+            label = f"Screen {number} — {area.width()}×{area.height()}"
+            self.screen_box.addItem(label + (" (primary)" if screen is primary else ""), area)
         self.area_box = QtWidgets.QComboBox()
-        self.area_box.addItem("Vælg område…", None)
+        self.area_box.addItem("Choose area…", None)
         for label, fractions in WINDOW_AREAS:
             self.area_box.addItem(label, fractions)
         self.area_box.activated.connect(self.area_chosen)
 
-        self.size_check = QtWidgets.QCheckBox("Fast størrelse")
-        self.position_check = QtWidgets.QCheckBox("Fast placering")
+        self.size_check = QtWidgets.QCheckBox("Fixed size")
+        self.position_check = QtWidgets.QCheckBox("Fixed position")
         self.state_box = QtWidgets.QComboBox()
         for label, state in WINDOW_STATES:
             self.state_box.addItem(label, state)
         self.state_box.currentIndexChanged.connect(self.window_fields_toggled)
-        self.lock_check = QtWidgets.QCheckBox("Fastlås — vinduet kan ikke ændres bagefter")
+        self.lock_check = QtWidgets.QCheckBox("Lock — the window cannot be changed afterwards")
         self.width_spin = QtWidgets.QSpinBox()
         self.height_spin = QtWidgets.QSpinBox()
         for spin in (self.width_spin, self.height_spin):
@@ -807,17 +807,17 @@ class EditorDialog(QtWidgets.QDialog):
             spin.setSuffix(" px")
 
         picker = QtWidgets.QHBoxLayout()
-        picker.addWidget(QtWidgets.QLabel("Skærm:"))
+        picker.addWidget(QtWidgets.QLabel("Screen:"))
         picker.addWidget(self.screen_box, 1)
-        picker.addWidget(QtWidgets.QLabel("Placer i:"))
+        picker.addWidget(QtWidgets.QLabel("Place in:"))
         picker.addWidget(self.area_box, 1)
 
         grid = QtWidgets.QGridLayout(group)
         grid.addLayout(picker, 0, 0, 1, 5)
         grid.addWidget(self.size_check, 1, 0)
-        grid.addWidget(QtWidgets.QLabel("Bredde:"), 1, 1)
+        grid.addWidget(QtWidgets.QLabel("Width:"), 1, 1)
         grid.addWidget(self.width_spin, 1, 2)
-        grid.addWidget(QtWidgets.QLabel("Højde:"), 1, 3)
+        grid.addWidget(QtWidgets.QLabel("Height:"), 1, 3)
         grid.addWidget(self.height_spin, 1, 4)
         grid.addWidget(self.position_check, 2, 0)
         grid.addWidget(QtWidgets.QLabel("X:"), 2, 1)
@@ -825,15 +825,15 @@ class EditorDialog(QtWidgets.QDialog):
         grid.addWidget(QtWidgets.QLabel("Y:"), 2, 3)
         grid.addWidget(self.y_spin, 2, 4)
         state_row = QtWidgets.QHBoxLayout()
-        state_row.addWidget(QtWidgets.QLabel("Åbn som:"))
+        state_row.addWidget(QtWidgets.QLabel("Open as:"))
         state_row.addWidget(self.state_box)
         state_row.addStretch()
         grid.addLayout(state_row, 3, 0, 1, 5)
         grid.addWidget(self.lock_check, 4, 0, 1, 5)
         grid.setColumnStretch(5, 1)
 
-        # Fast højde: teksten skifter når felterne slås til og fra, og en label der
-        # vokser fra én til to linjer flytter rundt på alt andet i dialogen.
+        # Fixed height: the text changes when fields are toggled, and a label that grows
+        # from one to two lines moves everything else in the dialog around.
         self.window_hint = QtWidgets.QLabel()
         self.window_hint.setWordWrap(True)
         self.window_hint.setAlignment(Qt.AlignTop)
@@ -847,20 +847,20 @@ class EditorDialog(QtWidgets.QDialog):
         self.window_fields_toggled()
         if not kwin_available():
             group.setEnabled(False)
-            self.window_hint.setText("Kræver KDE's vindueshåndtering (KWin). "
-                                     "Andre skriveborde har ingen tilsvarende regler.")
+            self.window_hint.setText("Requires KDE's window manager (KWin). "
+                                     "Other desktops have no equivalent rules.")
         return group
 
     def screen_area(self) -> QtCore.QRect:
-        """Det brugbare område på den valgte skærm — uden paneler og proceslinje."""
+        """The usable area of the chosen screen — without panels and taskbar."""
         return self.screen_box.currentData() or QtCore.QRect(0, 0, 1920, 1080)
 
     def suggest_geometry(self):
-        """Udgangspunktet: to tredjedele af skærmen, centreret."""
+        """The starting point: two thirds of the screen, centered."""
         self.set_area(*WINDOW_AREAS[-1][1])
 
     def set_area(self, left: float, top: float, width: float, height: float):
-        """Udfyld felterne med en andel af den valgte skærm."""
+        """Fill in the fields with a fraction of the chosen screen."""
         area = self.screen_area()
         self.width_spin.setValue(max(200, round(area.width() * width)))
         self.height_spin.setValue(max(200, round(area.height() * height)))
@@ -868,7 +868,7 @@ class EditorDialog(QtWidgets.QDialog):
         self.y_spin.setValue(area.y() + round(area.height() * top))
 
     def area_chosen(self, index: int):
-        """Hurtigvalget fylder felterne ud og slår dem til. Selv står det på "Vælg område…"."""
+        """The quick pick fills in the fields and enables them. It returns to "Choose area…"."""
         fractions = self.area_box.itemData(index)
         self.area_box.setCurrentIndex(0)
         if not fractions:
@@ -890,21 +890,21 @@ class EditorDialog(QtWidgets.QDialog):
         if not kwin_available():
             return
         if state:
-            word = "Fuldskærm" if state == "fullscreen" else "Et maksimeret vindue"
+            word = "A full screen window" if state == "fullscreen" else "A maximized window"
             self.window_hint.setText(
-                f"{word} fylder den skærm vinduet åbner på. Sæt en placering for at "
-                "bestemme hvilken.")
+                f"{word} fills the screen it opens on. Set a position to choose "
+                "which screen.")
         elif not chosen:
             self.window_hint.setText(
-                "Uden dette bestemmer browseren og KWin selv størrelse og placering.")
+                "Without this, the browser and KWin decide size and position themselves.")
         elif self.lock_check.isChecked():
             self.window_hint.setText(
-                "Slår igennem næste gang appen åbnes. Vinduet kan hverken flyttes "
-                "eller skaleres bagefter.")
+                "Takes effect the next time the app opens. The window can be neither "
+                "moved nor resized afterwards.")
         else:
             self.window_hint.setText(
-                "Slår igennem næste gang appen åbnes. Vinduet kan stadig flyttes og "
-                "skaleres, og KWin husker det du selv gør.")
+                "Takes effect the next time the app opens. The window can still be moved "
+                "and resized, and KWin remembers what you do.")
 
     def load_window_rule(self, app: WebApp):
         self.existing_class = window_class(app, self.browsers)
@@ -921,8 +921,8 @@ class EditorDialog(QtWidgets.QDialog):
         self.lock_check.setChecked(bool(rule.get("lock")))
         if not self.existing_class:
             self.window_group.setEnabled(False)
-            self.window_hint.setText("Browseren bag denne genvej kunne ikke genkendes, "
-                                     "så vinduets app-id er ukendt.")
+            self.window_hint.setText("The browser behind this shortcut was not recognized, "
+                                     "so the window's app id is unknown.")
 
     def load_existing(self, app: WebApp):
         self.name_edit.setText(app.name)
@@ -940,9 +940,9 @@ class EditorDialog(QtWidgets.QDialog):
         self.load_window_rule(app)
         if app.browser_installed:
             self.url_edit.setEnabled(False)
-            self.url_edit.setPlaceholderText("styres af browserens app-id")
-            self.hint.setText("Denne er installeret af browseren selv. Adressen ligger i "
-                              "browserens app-id og kan ikke redigeres her.")
+            self.url_edit.setPlaceholderText("controlled by the browser's app id")
+            self.hint.setText("This one was installed by the browser itself. The URL is "
+                              "stored with the browser's app id and cannot be edited here.")
 
     def reload_profiles(self):
         browser = self.browser_box.currentData()
@@ -957,22 +957,22 @@ class EditorDialog(QtWidgets.QDialog):
     def fetch(self):
         url = self.normalised_url()
         if not url:
-            QtWidgets.QMessageBox.warning(self, "Mangler adresse",
-                                          "Udfyld adressen først.")
+            QtWidgets.QMessageBox.warning(self, "Missing URL",
+                                          "Fill in the URL first.")
             return
         self.fetch_button.setEnabled(False)
-        self.fetch_button.setText("Henter…")
+        self.fetch_button.setText("Fetching…")
         self.fetcher = IconFetcher(url, self)
         self.fetcher.done.connect(self.icon_fetched)
         self.fetcher.start()
 
     def icon_fetched(self, image: QtGui.QImage):
         self.fetch_button.setEnabled(True)
-        self.fetch_button.setText("Hent fra webstedet")
+        self.fetch_button.setText("Fetch from website")
         if image.isNull():
             QtWidgets.QMessageBox.information(
-                self, "Intet ikon fundet",
-                "Kunne ikke finde et brugbart ikon på webstedet. Vælg en fil i stedet.")
+                self, "No icon found",
+                "Could not find a usable icon on the website. Choose a file instead.")
             return
         self.image = image
         self.update_preview(QtGui.QPixmap.fromImage(image).scaled(
@@ -980,13 +980,13 @@ class EditorDialog(QtWidgets.QDialog):
 
     def choose_file(self):
         path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "Vælg ikon", str(HOME), "Billeder (*.png *.jpg *.jpeg *.svg *.webp *.ico)")
+            self, "Choose icon", str(HOME), "Images (*.png *.jpg *.jpeg *.svg *.webp *.ico)")
         if not path:
             return
         image = QtGui.QImage(path)
         if image.isNull():
-            QtWidgets.QMessageBox.warning(self, "Ugyldigt billede",
-                                          "Filen kunne ikke indlæses som billede.")
+            QtWidgets.QMessageBox.warning(self, "Invalid image",
+                                          "The file could not be loaded as an image.")
             return
         self.image = image
         self.update_preview(QtGui.QPixmap.fromImage(image).scaled(
@@ -1000,10 +1000,10 @@ class EditorDialog(QtWidgets.QDialog):
 
     def accept(self):
         if not self.name_edit.text().strip():
-            QtWidgets.QMessageBox.warning(self, "Mangler navn", "Giv web-appen et navn.")
+            QtWidgets.QMessageBox.warning(self, "Missing name", "Give the web app a name.")
             return
         if self.url_edit.isEnabled() and not self.normalised_url():
-            QtWidgets.QMessageBox.warning(self, "Mangler adresse", "Udfyld adressen.")
+            QtWidgets.QMessageBox.warning(self, "Missing URL", "Fill in the URL.")
             return
         super().accept()
 
@@ -1026,7 +1026,7 @@ class EditorDialog(QtWidgets.QDialog):
 
 
 # --------------------------------------------------------------------------
-# Skrivning og fjernelse
+# Writing and removal
 # --------------------------------------------------------------------------
 
 def unique_desktop_path(slug: str) -> Path:
@@ -1040,7 +1040,7 @@ def unique_desktop_path(slug: str) -> Path:
 
 
 def patch_desktop(path: Path, updates: dict[str, str]) -> None:
-    """Ret enkeltnøgler i [Desktop Entry] uden at røre Actions-grupperne."""
+    """Change individual keys in [Desktop Entry] without touching the Actions groups."""
     try:
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError:
@@ -1071,7 +1071,7 @@ def patch_desktop(path: Path, updates: dict[str, str]) -> None:
 
 
 def apply_window_rule(values: dict, wm_class: str) -> None:
-    """Læg vinduesreglen på det nye app-id og ryd den gamle hvis den er flyttet."""
+    """Put the window rule on the new app id and clear the old one if it has changed."""
     old_class = values.get("old_wm_class", "")
     if old_class and old_class != wm_class:
         remove_window_rule(old_class)
@@ -1080,12 +1080,12 @@ def apply_window_rule(values: dict, wm_class: str) -> None:
 
 
 def save_webapp(values: dict, existing: WebApp | None) -> tuple[Path, str]:
-    """Opret eller opdatér en web-app. Returnerer (sti, ikonnavn)."""
+    """Create or update a web app. Returns (path, icon name)."""
     browser: Browser = values["browser"]
     name, url, profile = values["name"], values["url"], values["profile"]
 
     if existing and existing.browser_installed:
-        # Browserens egen PWA: rør kun navn og ikon, lad Exec og Actions være.
+        # The browser's own PWA: only touch name and icon, leave Exec and Actions alone.
         icon_name = existing.icon or slugify(name)
         if values["image"] is not None and not icon_name.startswith("/"):
             install_icon(values["image"], icon_name)
@@ -1112,8 +1112,8 @@ def save_webapp(values: dict, existing: WebApp | None) -> tuple[Path, str]:
               f"--profile-directory={profile}",
               f"--class={icon_name}",
               f"--app={url}"]
-    # StartupWMClass skal være det app-id browseren giver vinduet, ikke ikonnavnet —
-    # ellers finder proceslinjen ikke frem til denne fil og viser browserens ikon.
+    # StartupWMClass must be the app id the browser gives the window, not the icon name —
+    # otherwise the taskbar cannot match the window to this file and shows the browser's icon.
     wm_class = wm_class_name(browser, url, "", profile)
 
     lines = [
@@ -1145,32 +1145,33 @@ def remove_webapp(app: WebApp, browsers: list[Browser], drop_icon: bool = True) 
             target.unlink()
             removed.append(str(target))
         except OSError as error:
-            removed.append(f"kunne ikke fjerne {target}: {error}")
+            removed.append(f"could not remove {target}: {error}")
     if drop_icon and app.icon and not app.icon.startswith("/"):
         count = remove_icons(app.icon)
         if count:
-            removed.append(f"{count} ikonfil(er)")
+            removed.append(f"{count} icon file(s)")
     wm_class = window_class(app, browsers)
     if read_window_rule(wm_class):
         try:
             remove_window_rule(wm_class)
-            removed.append("vinduesreglen")
+            removed.append("the window rule")
         except (OSError, ValueError) as error:
-            removed.append(f"kunne ikke fjerne vinduesreglen: {error}")
+            removed.append(f"could not remove the window rule: {error}")
     refresh_caches()
     return removed
 
 
 def move_to_menu(app: WebApp, browsers: list[Browser]) -> Path:
-    """Flyt en web-app fra skrivebordet ind i programmenuen.
+    """Move a web app from the desktop into the application menu.
 
-    Snap-Brave kan ikke selv oprette menupunkt og ikoner — xdg-desktop-menu findes ikke i
-    snappen — så den eneste genvej ligger på skrivebordet. Filnavnet bevares, alle
-    Exec-linjer peges på /snap/bin, og ikonet hentes fra browserens profil.
+    Snap Brave cannot create a menu entry and icons itself — xdg-desktop-menu does not
+    exist inside the snap — so the only shortcut is on the desktop. The file name is
+    kept, every Exec line is pointed at /snap/bin, and the icon is taken from the
+    browser's profile.
     """
     target = APPS_DIR / app.path.name
     if target.exists():
-        raise FileExistsError(f"{target} findes allerede")
+        raise FileExistsError(f"{target} already exists")
     lines = app.path.read_text(encoding="utf-8", errors="replace").splitlines()
     for index, line in enumerate(lines):
         if line.startswith("Exec="):
@@ -1190,22 +1191,22 @@ def move_to_menu(app: WebApp, browsers: list[Browser]) -> Path:
 
 
 # --------------------------------------------------------------------------
-# Hovedvindue
+# Main window
 # --------------------------------------------------------------------------
 
 def window_summary(app: WebApp, browsers: list[Browser]) -> str:
-    """Vinduesreglen skrevet ud, til detaljeruden."""
+    """The window rule spelled out, for the details pane."""
     rule = read_window_rule(window_class(app, browsers))
     parts = []
     if rule.get("state"):
-        parts.append({"fullscreen": "fuldskærm", "maximized": "maksimeret"}[rule["state"]])
+        parts.append({"fullscreen": "full screen", "maximized": "maximized"}[rule["state"]])
     if rule.get("size"):
         parts.append("{}×{}".format(*rule["size"]))
     if rule.get("position"):
-        parts.append("ved {},{}".format(*rule["position"]))
+        parts.append("at {},{}".format(*rule["position"]))
     if rule.get("lock"):
-        parts.append("(fastlåst)")
-    return " ".join(parts) if parts else "browseren bestemmer"
+        parts.append("(locked)")
+    return " ".join(parts) if parts else "decided by the browser"
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
@@ -1215,7 +1216,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.browsers = detect_browsers()
         self.apps: list[WebApp] = []
 
-        toolbar = self.addToolBar("Handlinger")
+        toolbar = self.addToolBar("Actions")
         toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         toolbar.setMovable(False)
 
@@ -1227,21 +1228,21 @@ class MainWindow(QtWidgets.QMainWindow):
             toolbar.addAction(action)
             return action
 
-        self.new_action = add_action("Ny", "list-add", self.create, "Ctrl+N")
-        self.edit_action = add_action("Rediger", "document-edit", self.edit, "F2")
-        self.remove_action = add_action("Fjern", "edit-delete", self.remove, "Delete")
-        self.open_action = add_action("Åbn", "system-run", self.launch, "Ctrl+O")
-        self.menu_action = add_action("Læg i menu", "application-menu", self.add_to_menu)
+        self.new_action = add_action("New", "list-add", self.create, "Ctrl+N")
+        self.edit_action = add_action("Edit", "document-edit", self.edit, "F2")
+        self.remove_action = add_action("Remove", "edit-delete", self.remove, "Delete")
+        self.open_action = add_action("Open", "system-run", self.launch, "Ctrl+O")
+        self.menu_action = add_action("Add to menu", "application-menu", self.add_to_menu)
         toolbar.addSeparator()
-        self.browser_action = add_action("Browserens apps", "internet-web-browser",
+        self.browser_action = add_action("Browser apps", "internet-web-browser",
                                          self.open_browser_apps)
-        add_action("Opdater", "view-refresh", self.reload, "F5")
+        add_action("Refresh", "view-refresh", self.reload, "F5")
 
         spacer = QtWidgets.QWidget()
         spacer.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         toolbar.addWidget(spacer)
         self.filter_edit = QtWidgets.QLineEdit()
-        self.filter_edit.setPlaceholderText("Søg…")
+        self.filter_edit.setPlaceholderText("Search…")
         self.filter_edit.setClearButtonEnabled(True)
         self.filter_edit.setMaximumWidth(240)
         self.filter_edit.textChanged.connect(self.apply_filter)
@@ -1256,8 +1257,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.detail = QtWidgets.QFormLayout()
         self.detail.setLabelAlignment(Qt.AlignRight)
         self.detail_fields = {}
-        for key, label in (("kind", "Type"), ("url", "Adresse"), ("browser", "Browser"),
-                           ("profile", "Profil"), ("window", "Vindue"), ("path", "Fil")):
+        for key, label in (("kind", "Type"), ("url", "URL"), ("browser", "Browser"),
+                           ("profile", "Profile"), ("window", "Window"), ("path", "File")):
             value = QtWidgets.QLabel()
             value.setTextInteractionFlags(Qt.TextSelectableByMouse)
             value.setWordWrap(True)
@@ -1286,9 +1287,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if not self.browsers:
             QtWidgets.QMessageBox.warning(
-                self, "Ingen browser fundet",
-                "Fandt ingen Chromium-baseret browser. Installér f.eks. Brave, "
-                "Chromium eller Chrome for at kunne oprette web-apps.")
+                self, "No browser found",
+                "No Chromium-based browser was found. Install Brave, Chromium or "
+                "Chrome, for example, to be able to create web apps.")
         self.reload()
 
     # -- data ------------------------------------------------------------
@@ -1305,8 +1306,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     break
         managed = sum(1 for a in self.apps if not a.browser_installed)
         self.statusBar().showMessage(
-            f"{len(self.apps)} web-app(s): {len(self.apps) - managed} installeret af "
-            f"browseren, {managed} oprettet manuelt")
+            f"{len(self.apps)} web app(s): {len(self.apps) - managed} installed by "
+            f"the browser, {managed} created manually")
 
     def apply_filter(self):
         needle = self.filter_edit.text().strip().lower()
@@ -1317,7 +1318,7 @@ class MainWindow(QtWidgets.QMainWindow):
             item = QtWidgets.QListWidgetItem(load_icon(app.icon), app.name)
             item.setData(Qt.UserRole, app)
             if app.browser_installed:
-                item.setToolTip("Installeret af browseren")
+                item.setToolTip("Installed by the browser")
             self.list_widget.addItem(item)
         if self.list_widget.count() and not self.list_widget.currentItem():
             self.list_widget.setCurrentRow(0)
@@ -1331,7 +1332,7 @@ class MainWindow(QtWidgets.QMainWindow):
         app = self.current_app()
         for value in self.detail_fields.values():
             value.setText("")
-        self.detail_title.setText(app.name if app else "Ingen valgt")
+        self.detail_title.setText(app.name if app else "Nothing selected")
         for action in (self.edit_action, self.remove_action, self.open_action):
             action.setEnabled(app is not None)
         self.browser_action.setEnabled(bool(app and app.browser_installed))
@@ -1339,14 +1340,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if not app:
             return
         self.detail_fields["kind"].setText(
-            f"{app.kind} — kun på skrivebordet" if app.on_desktop else app.kind)
-        self.detail_fields["url"].setText(app.url or f"app-id {app.app_id}")
+            f"{app.kind} — desktop only" if app.on_desktop else app.kind)
+        self.detail_fields["url"].setText(app.url or f"app id {app.app_id}")
         self.detail_fields["browser"].setText(app.browser_label(self.browsers))
         self.detail_fields["profile"].setText(app.profile)
         self.detail_fields["window"].setText(window_summary(app, self.browsers))
         self.detail_fields["path"].setText(str(app.path))
 
-    # -- handlinger ------------------------------------------------------
+    # -- actions ---------------------------------------------------------
     def create(self):
         if not self.browsers:
             return
@@ -1356,11 +1357,11 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             path, _ = save_webapp(dialog.result_values(), None)
         except (OSError, ValueError) as error:
-            QtWidgets.QMessageBox.warning(self, "Kunne ikke gemme", str(error))
+            QtWidgets.QMessageBox.warning(self, "Could not save", str(error))
             self.reload()
             return
         self.reload()
-        self.statusBar().showMessage(f"Oprettet: {path}", 8000)
+        self.statusBar().showMessage(f"Created: {path}", 8000)
 
     def edit(self):
         app = self.current_app()
@@ -1372,41 +1373,41 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             save_webapp(dialog.result_values(), app)
         except (OSError, ValueError) as error:
-            QtWidgets.QMessageBox.warning(self, "Kunne ikke gemme", str(error))
+            QtWidgets.QMessageBox.warning(self, "Could not save", str(error))
             self.reload()
             return
         self.reload()
-        self.statusBar().showMessage(f"Opdateret: {app.name}", 8000)
+        self.statusBar().showMessage(f"Updated: {app.name}", 8000)
 
     def remove(self):
         app = self.current_app()
         if not app:
             return
         files = [app.path, *app.twins]
-        text = (f"Fjern <b>{app.name}</b>?<br><br>Sletter:<br>"
+        text = (f"Remove <b>{app.name}</b>?<br><br>Deletes:<br>"
                 + "<br>".join(f"<code>{p}</code>" for p in files))
         if app.icon and not app.icon.startswith("/"):
-            text += f"<br>samt ikonet <code>{app.icon}</code> i dit eget ikontema."
+            text += f"<br>and the icon <code>{app.icon}</code> in your own icon theme."
         if read_window_rule(window_class(app, self.browsers)):
-            text += "<br>samt vinduesreglen i <code>kwinrulesrc</code>."
+            text += "<br>and the window rule in <code>kwinrulesrc</code>."
         if app.browser_installed:
-            text += ("<br><br><b>Bemærk:</b> denne er installeret af browseren. "
-                     "Genvejen forsvinder nu, men appen er stadig registreret inde i "
-                     "browseren og kan blive gendannet. Afinstallér den også på "
-                     "browserens app-side for at fjerne den helt.")
+            text += ("<br><br><b>Note:</b> this one was installed by the browser. "
+                     "The shortcut goes away now, but the app is still registered inside "
+                     "the browser and may be restored. Uninstall it on the browser's "
+                     "apps page as well to remove it completely.")
         box = QtWidgets.QMessageBox(self)
-        box.setWindowTitle("Fjern web-app")
+        box.setWindowTitle("Remove web app")
         box.setIcon(QtWidgets.QMessageBox.Question)
         box.setTextFormat(Qt.RichText)
         box.setText(text)
-        yes = box.addButton("Fjern", QtWidgets.QMessageBox.AcceptRole)
-        box.addButton("Annullér", QtWidgets.QMessageBox.RejectRole)
+        yes = box.addButton("Remove", QtWidgets.QMessageBox.AcceptRole)
+        box.addButton("Cancel", QtWidgets.QMessageBox.RejectRole)
         box.exec()
         if box.clickedButton() is not yes:
             return
         removed = remove_webapp(app, self.browsers)
         self.reload()
-        self.statusBar().showMessage("Fjernet: " + ", ".join(removed), 10000)
+        self.statusBar().showMessage("Removed: " + ", ".join(removed), 10000)
 
     def add_to_menu(self):
         app = self.current_app()
@@ -1415,10 +1416,10 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             path = move_to_menu(app, self.browsers)
         except OSError as error:
-            QtWidgets.QMessageBox.warning(self, "Kunne ikke lægge i menuen", str(error))
+            QtWidgets.QMessageBox.warning(self, "Could not add to the menu", str(error))
             return
         self.reload()
-        self.statusBar().showMessage(f"Lagt i menuen: {path}", 8000)
+        self.statusBar().showMessage(f"Added to the menu: {path}", 8000)
 
     def launch(self):
         app = self.current_app()
@@ -1428,9 +1429,9 @@ class MainWindow(QtWidgets.QMainWindow):
             subprocess.Popen(resolve_snap_command(exec_tokens(app.exec_line)),
                              start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            self.statusBar().showMessage(f"Startede {app.name}", 5000)
+            self.statusBar().showMessage(f"Started {app.name}", 5000)
         except OSError as error:
-            QtWidgets.QMessageBox.warning(self, "Kunne ikke starte", str(error))
+            QtWidgets.QMessageBox.warning(self, "Could not start", str(error))
 
     def open_browser_apps(self):
         app = self.current_app()
@@ -1447,7 +1448,7 @@ class MainWindow(QtWidgets.QMainWindow):
                               f"{scheme}://apps"], start_new_session=True,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError as error:
-            QtWidgets.QMessageBox.warning(self, "Kunne ikke åbne browseren", str(error))
+            QtWidgets.QMessageBox.warning(self, "Could not open the browser", str(error))
 
 
 def main():

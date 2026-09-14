@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fjerner Genvej. Rører ikke de web-apps du har lavet med programmet.
+# Removes Genvej. Leaves the web apps you created with it untouched.
 set -euo pipefail
 
 SHARE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -12,4 +12,4 @@ rm -f "$ICON_ROOT"/*/apps/genvej.png
 
 command -v update-desktop-database >/dev/null && update-desktop-database "$SHARE_DIR/applications" || true
 command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 --noincremental 2>/dev/null || true
-echo "Genvej fjernet. Dine web-apps er urørte."
+echo "Genvej removed. Your web apps are untouched."
