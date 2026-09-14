@@ -18,6 +18,8 @@ alternatives on Flathub (`dev.heppen.webapps`, `net.codelogistics.webapps`,
 | `data/make_icon.py` | Draws the program icon with QPainter, no image files in the repo. Takes the icon root as an argument and is run offscreen by `install.sh` |
 | `data/genvej.desktop` | Menu entry |
 | `install.sh` / `uninstall.sh` | Installation in `~/.local`, without root |
+| `data/screenshot.py` | Renders the README screenshots in `docs/` from made-up web apps |
+| `LICENSE` | GPL-3.0; source files carry `SPDX-License-Identifier: GPL-3.0-or-later` |
 
 Once installed, the code lives in `~/.local/share/genvej/genvej.py`. Always run `./install.sh`
 after a change — the program runs from the installed copy, not from the repo.
@@ -26,6 +28,14 @@ The version number exists in one place only: `VERSION` near the top of `genvej.p
 shown with `genvej --version` and in the main window's status bar, and `install.sh` reads it
 with `sed`, so keep the line in the form `VERSION = "x.y.z"`. Releases are GitHub Releases
 tagged `v<VERSION>`; users download GitHub's source archive and run `install.sh`.
+`gh release create --target <short commit hash>` failed with HTTP 422 ("tag_name is not a
+valid tag"), so create and push the tag first:
+
+```bash
+git tag -a v1.2.3 -m "Genvej 1.2.3" && git push origin v1.2.3
+gh release create v1.2.3 --verify-tag --title "Genvej 1.2.3" --notes-file notes.md
+gh release download v1.2.3 --archive=tar.gz   # genvej-1.2.3.tar.gz → genvej-1.2.3/, as the README says
+```
 
 ## Structure
 
@@ -100,12 +110,22 @@ patched `SNAP_BIN`.
 
 `MainWindow` can be instantiated offscreen, so GUI startup, filtering and button states can
 be tested without a display. If `detect_browsers()` finds no browser, the constructor opens a
-modal warning and the test hangs — patch `QtWidgets.QMessageBox.warning` first. Run with
-`python3 -u`, otherwise output is lost when `timeout` kills the process.
+modal warning and the test hangs — unless browser detection itself is under test, set
+`g.detect_browsers = lambda: [brave]` before constructing it (or patch
+`QtWidgets.QMessageBox.warning`). Run with `python3 -u`, otherwise output is lost when
+`timeout` kills the process.
 `QIcon.fromTheme()` finds nothing under `offscreen` — not even an icon that is installed
 correctly, and regardless of `setThemeName()`. Icon lookups must be tested with the real
 platform (`env -u QT_QPA_PLATFORM`); as long as no `show()`/`exec()` is called, nothing is
 displayed.
+
+**Screenshots.** After a visible UI change, regenerate `docs/` with
+`env -u QT_QPA_PLATFORM python3 data/screenshot.py` and look at the PNGs before committing.
+It uses the real platform for the theme icons, but all data is made up in a temporary
+directory, so nothing from the user's own browsers or files ends up in the repo. `grab()` on
+a window that is never shown does not recompute the height of word-wrapped labels, which is
+why the script turns wrapping off in the details pane. The images follow the desktop's
+colour scheme at the time they are rendered.
 
 **How to measure a real window.** Everything about window rules below was found by opening a
 window and looking. KWin has no command line for this, so it goes through a script over
@@ -267,6 +287,10 @@ and the rule's `size` is the *frame's* size, so quarters tile exactly (measured:
 `EditorDialog.window_hint` has a fixed height. The text changes when fields are toggled, and
 a wrapped label that grows from one to two lines moves the whole dialog around — including
 the icon further up.
+
+**Dimmed text must survive dark themes.** Hint labels go through `mute_label()`, which uses
+the palette's placeholder colour. Do not use `palette(mid)` in a stylesheet: in Breeze Dark it
+is `#1c1f21` on a `#1c1f22` background, so the text is invisible.
 
 ## Conventions
 
