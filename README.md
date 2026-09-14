@@ -36,17 +36,6 @@ themselves; Genvej finds all of them, because it reads the `.desktop` files dire
 Window size and placement use KWin window rules and are only available on KDE Plasma.
 Everything else works on any desktop.
 
-## Installation
-
-```bash
-git clone https://github.com/MrNielsenDK/genvej.git
-cd genvej
-./install.sh
-```
-
-The installer puts everything under `~/.local` and does not need root. Start Genvej from
-the application menu or by running `genvej`.
-
 PySide6 is already included on Fedora Atomic desktops such as Kinoite and Bazzite.
 Elsewhere:
 
@@ -58,7 +47,38 @@ Elsewhere:
 There are no third-party Python packages, no build step and no virtualenv, so Genvej runs
 directly on immutable systems without layering packages.
 
-To uninstall, run `./uninstall.sh`. Your web apps are left in place.
+## Installation
+
+Download **Source code (tar.gz)** from the
+[latest release](https://github.com/MrNielsenDK/genvej/releases/latest), then unpack it
+and run the installer:
+
+```bash
+tar xf genvej-*.tar.gz
+cd genvej-*/
+./install.sh
+```
+
+The installer puts everything under `~/.local` and does not need root. Start Genvej from
+the application menu or by running `genvej`. The unpacked folder can be deleted afterwards.
+
+To run the latest development version instead, clone the repository:
+
+```bash
+git clone https://github.com/MrNielsenDK/genvej.git
+cd genvej
+./install.sh
+```
+
+### Updating
+
+Download the new release and run its `./install.sh`. It replaces the installed copy and
+leaves your web apps and window rules alone. Check which version you have with
+`genvej --version`, or look in the bottom right corner of the main window.
+
+### Uninstalling
+
+Run `./uninstall.sh` from the unpacked folder or clone. Your web apps are left in place.
 
 ## Supported browsers
 

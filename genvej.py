@@ -28,6 +28,8 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, Signal
 
+VERSION = "1.0.0"  # install.sh reads this line; releases are tagged v<VERSION>
+
 HOME = Path.home()
 APPS_DIR = HOME / ".local/share/applications"
 ICON_ROOT = HOME / ".local/share/icons/hicolor"
@@ -1294,7 +1296,9 @@ class MainWindow(QtWidgets.QMainWindow):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         self.setCentralWidget(splitter)
-        self.statusBar()
+        version_label = QtWidgets.QLabel(f"Genvej {VERSION}")
+        mute_label(version_label)
+        self.statusBar().addPermanentWidget(version_label)
 
         if not self.browsers:
             QtWidgets.QMessageBox.warning(
@@ -1463,9 +1467,13 @@ class MainWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    if "--version" in sys.argv[1:]:
+        print(f"Genvej {VERSION}")
+        return
     QtWidgets.QApplication.setDesktopFileName("genvej")
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName("Genvej")
+    app.setApplicationVersion(VERSION)
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

@@ -7,6 +7,7 @@ SHARE_DIR="${XDG_DATA_HOME:-$HOME/.local/share}"
 BIN_DIR="$HOME/.local/bin"
 APP_DIR="$SHARE_DIR/genvej"
 ICON_ROOT="$SHARE_DIR/icons/hicolor"
+VERSION="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' "$SOURCE_DIR/genvej.py")"
 
 command -v python3 >/dev/null || { echo "python3 is missing" >&2; exit 1; }
 python3 -c "import PySide6" 2>/dev/null || {
@@ -30,5 +31,5 @@ command -v update-desktop-database >/dev/null && update-desktop-database "$SHARE
 command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -f -t "$ICON_ROOT" 2>/dev/null || true
 command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 --noincremental 2>/dev/null || true
 
-echo "Genvej installed. Start it with 'genvej' or from the application menu."
+echo "Genvej ${VERSION:-(unknown version)} installed. Start it with 'genvej' or from the application menu."
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "Note: $BIN_DIR is not in your PATH." ;; esac

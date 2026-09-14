@@ -22,6 +22,11 @@ alternatives on Flathub (`dev.heppen.webapps`, `net.codelogistics.webapps`,
 Once installed, the code lives in `~/.local/share/genvej/genvej.py`. Always run `./install.sh`
 after a change — the program runs from the installed copy, not from the repo.
 
+The version number exists in one place only: `VERSION` near the top of `genvej.py`. It is
+shown with `genvej --version` and in the main window's status bar, and `install.sh` reads it
+with `sed`, so keep the line in the form `VERSION = "x.y.z"`. Releases are GitHub Releases
+tagged `v<VERSION>`; users download GitHub's source archive and run `install.sh`.
+
 ## Structure
 
 `genvej.py` is split into sections: .desktop handling, browsers and profiles, discovered
