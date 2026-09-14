@@ -686,6 +686,17 @@ def kwin_reconfigure() -> None:
 # Editor dialog
 # --------------------------------------------------------------------------
 
+def mute_label(label: QtWidgets.QLabel) -> None:
+    """Dim hint text that stays readable in dark themes.
+
+    palette(mid) is practically the background colour in Breeze Dark, so the
+    placeholder colour is used instead — it is made for exactly this.
+    """
+    palette = label.palette()
+    palette.setColor(QtGui.QPalette.WindowText, palette.color(QtGui.QPalette.PlaceholderText))
+    label.setPalette(palette)
+
+
 class IconFetcher(QtCore.QThread):
     done = Signal(QtGui.QImage)
 
@@ -746,7 +757,7 @@ class EditorDialog(QtWidgets.QDialog):
 
         self.hint = QtWidgets.QLabel()
         self.hint.setWordWrap(True)
-        self.hint.setStyleSheet("color: palette(mid);")
+        mute_label(self.hint)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
@@ -838,7 +849,7 @@ class EditorDialog(QtWidgets.QDialog):
         self.window_hint.setWordWrap(True)
         self.window_hint.setAlignment(Qt.AlignTop)
         self.window_hint.setFixedHeight(2 * self.window_hint.fontMetrics().lineSpacing())
-        self.window_hint.setStyleSheet("color: palette(mid);")
+        mute_label(self.window_hint)
         grid.addWidget(self.window_hint, 5, 0, 1, 6)
 
         for check in (self.size_check, self.position_check, self.lock_check):
