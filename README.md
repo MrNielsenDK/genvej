@@ -7,6 +7,8 @@ in one place: the ones you create yourself from a URL, and the ones your Chromiu
 browser installed as PWAs. Other web app managers only see the shortcuts they created
 themselves; Genvej finds all of them, because it reads the `.desktop` files directly.
 
+![Genvej's main window listing web apps, with details for the selected one](docs/main-window.png)
+
 ## Features
 
 - Create a web app from a URL — pick the browser, profile and icon
@@ -20,6 +22,10 @@ themselves; Genvej finds all of them, because it reads the `.desktop` files dire
 - Remove a web app completely, including its icon files and window rule
 - Open the browser's apps page in the right profile, for when a PWA needs to be
   uninstalled in the browser as well
+
+<p align="center">
+  <img src="docs/editor.png" alt="The editor dialog with name, URL, browser, profile, icon and window settings" width="480">
+</p>
 
 ## Requirements
 
