@@ -22,6 +22,8 @@ themselves; Genvej finds all of them, because it reads the `.desktop` files dire
 - Remove a web app completely, including its icon files and window rule
 - Open the browser's apps page in the right profile, for when a PWA needs to be
   uninstalled in the browser as well
+- Export your web apps — icons and window settings included — to a file, and set them
+  up again on another machine with `genvej apply`
 - Roll web apps out from the command line, so a management tool can deploy them
   across a fleet
 
@@ -101,8 +103,16 @@ non-zero if anything failed.
 ```bash
 genvej list                        # every web app found
 genvej apply --manifest apps.json  # create, update and remove from a manifest
+genvej export --output apps.json   # write every web app as a manifest
 genvej remove --url https://intranet.example.com/
 ```
+
+`export` — also **Export…** in the main window — writes a manifest that `apply` reads
+back, so the web apps can be moved to another machine or used as the starting point
+for a fleet. Each icon is embedded in the file, and window settings come along. With
+`--output -` the manifest goes to standard output instead. PWAs the browser installed
+itself are left out and named: their URL lives in the browser profile, so there is
+nothing to recreate them from.
 
 A manifest looks like this:
 
@@ -133,7 +143,8 @@ Only `name` and `url` are required. `browser` takes a browser's ident — `brave
 `chrome`, `chromium`, `edge`, `vivaldi`, optionally suffixed `-snap` or `-flatpak` —
 and `auto`, the default, takes whichever Chromium-based browser is installed; a bare
 `brave` also matches the snap and the flatpak, so one manifest covers a mixed fleet.
-`icon` is `auto` to fetch it from the site, a URL, a path, or `keep` to leave it alone.
+`icon` is `auto` to fetch it from the site, a URL, a path, a `data:` URI with the image
+itself, or `keep` to leave it alone.
 `state` is `present` (the default) or `absent`. Applying the same manifest twice
 changes nothing the second time: entries are matched on their URL, so a renamed web
 app is still recognised.

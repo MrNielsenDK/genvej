@@ -60,6 +60,12 @@ web apps, icons, window rules, editor dialog, writing and removal, main window.
   as default arguments or at import time. `kwin_rules_file()` is not a global but is derived
   from `HOME` at call time, so it follows along by itself.
 - Fetching icons from websites runs in `IconFetcher` (QThread), so the dialog doesn't freeze.
+- **Export is the inverse of `apply`.** `export_manifest()` builds the manifest both **Export…**
+  and `genvej export` write, so whatever `cli_apply_entry()` learns to read, export must learn
+  to write. Icons are embedded as `data:` URIs by `icon_data_uri()` — a path means nothing on
+  another machine — and `cli_image()` decodes them. The browser is written without its
+  `-snap`/`-flatpak` suffix so it matches any installation type. Browser-installed PWAs
+  (`--app-id=`) are skipped and named, since their URL only exists in the browser profile.
 
 ## Dependencies
 

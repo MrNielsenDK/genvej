@@ -13,6 +13,7 @@ apps out to a fleet; see cli_main().
 from __future__ import annotations
 
 import argparse
+import base64
 import configparser
 import io
 import json
@@ -1290,6 +1291,7 @@ class MainWindow(QtWidgets.QMainWindow):
         toolbar.addSeparator()
         self.browser_action = add_action("Browser apps", "internet-web-browser",
                                          self.open_browser_apps)
+        add_action("Export…", "document-export", self.export, "Ctrl+E")
         add_action("Refresh", "view-refresh", self.reload, "F5")
 
         spacer = QtWidgets.QWidget()
@@ -1478,6 +1480,27 @@ class MainWindow(QtWidgets.QMainWindow):
         self.reload()
         self.statusBar().showMessage(f"Added to the menu: {path}", 8000)
 
+    def export(self):
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "Export web apps", str(HOME / "genvej-webapps.json"),
+            "Genvej manifest (*.json)")
+        if not path:
+            return
+        manifest, skipped = export_manifest(self.apps, self.browsers)
+        try:
+            Path(path).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        except OSError as error:
+            QtWidgets.QMessageBox.warning(self, "Could not export", str(error))
+            return
+        message = f"Exported {len(manifest['webapps'])} web app(s) to {path}"
+        if skipped:
+            QtWidgets.QMessageBox.information(
+                self, "Exported",
+                f"{message}.\n\nNot exported, because the browser installed them and keeps "
+                "their URL in its own profile — install them again from the browser:\n\n"
+                + "\n".join(skipped))
+        self.statusBar().showMessage(message, 8000)
+
     def launch(self):
         app = self.current_app()
         if not app:
@@ -1518,7 +1541,7 @@ class MainWindow(QtWidgets.QMainWindow):
 # window rules, not two that drift apart.
 
 CLI_MANIFEST_VERSION = 1
-CLI_COMMANDS = ("apply", "list", "remove")
+CLI_COMMANDS = ("apply", "export", "list", "remove")
 
 
 def cli_browser(browsers: list[Browser], wanted: str) -> Browser | None:
@@ -1545,6 +1568,16 @@ def cli_image(spec: str, url: str) -> QtGui.QImage | None:
             image = QtGui.QImage.fromData(http_get(spec))
         except (OSError, ValueError, urllib.error.URLError):
             return None
+        return None if image.isNull() else image
+    if spec.startswith("data:"):
+        # What `genvej export` writes, so the icon travels inside the manifest.
+        header, _, payload = spec.partition(",")
+        try:
+            data = base64.b64decode(payload, validate=True) if header.endswith(";base64") \
+                else urllib.parse.unquote_to_bytes(payload)
+        except ValueError:
+            return None
+        image = QtGui.QImage.fromData(data)
         return None if image.isNull() else image
     image = QtGui.QImage(spec)
     return None if image.isNull() else image
@@ -1703,6 +1736,89 @@ def cli_remove(url: str, name: str) -> dict:
             "removed": remove_webapp(app, browsers)}
 
 
+def icon_data_uri(icon_name: str) -> str:
+    """The largest installed PNG of an icon as a data: URI, or "" if there is none.
+
+    A path in the manifest would point at nothing on another machine, so the
+    image itself is embedded. Only icons Genvej can find as files are used — a
+    theme icon from the system has no file of its own to carry.
+    """
+    if not icon_name:
+        return ""
+    if icon_name.startswith("/"):
+        candidates = [Path(icon_name)]
+    else:
+        def pixels(path: Path) -> int:
+            width = path.parent.parent.name.split("x", 1)[0]
+            return int(width) if width.isdigit() else 0
+        candidates = sorted(ICON_ROOT.glob(f"*/apps/{icon_name}.png"), key=pixels, reverse=True)
+    for candidate in candidates:
+        image = QtGui.QImage(str(candidate))
+        if image.isNull():
+            continue
+        if image.width() > 256 or image.height() > 256:
+            image = image.scaled(256, 256, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        buffer = QtCore.QBuffer()
+        buffer.open(QtCore.QIODevice.WriteOnly)
+        image.save(buffer, "PNG")
+        return "data:image/png;base64," + base64.b64encode(bytes(buffer.data())).decode("ascii")
+    return ""
+
+
+def export_manifest(apps: list[WebApp], browsers: list[Browser]) -> tuple[dict, list[str]]:
+    """A manifest `genvej apply` can read back, and the names that could not go in it.
+
+    A PWA the browser installed keeps its URL inside the browser profile, so there is
+    nothing to recreate it from. The browser is written without its -snap/-flatpak
+    suffix, because a bare ident matches every installation type on the other end.
+    """
+    entries, skipped = [], []
+    for app in apps:
+        if not app.url:
+            skipped.append(app.name)
+            continue
+        browser = app.find_browser(browsers)
+        entry = {"id": app.path.stem, "name": app.name, "url": app.url,
+                 "browser": browser.ident.split("-", 1)[0] if browser else "auto",
+                 "profile": app.profile,
+                 "icon": icon_data_uri(app.icon) or "auto"}
+        rule = read_window_rule(window_class(app, browsers))
+        window = {}
+        if rule.get("state"):
+            window["state"] = rule["state"]
+        for key in ("size", "position"):
+            if rule.get(key):
+                window[key] = list(rule[key])
+        if rule.get("lock"):
+            window["lock"] = True
+        if window:
+            entry["window"] = window
+        entries.append(entry)
+    return {"version": CLI_MANIFEST_VERSION, "webapps": entries}, skipped
+
+
+def cli_export(output: str) -> dict | None:
+    """Write the manifest to a file, or to standard output when output is "-".
+
+    Returns the report, or None when the manifest itself went to standard output —
+    then it is the output, and the skipped names go to standard error instead.
+    """
+    manifest, skipped = export_manifest(find_web_apps(), detect_browsers())
+    text = json.dumps(manifest, indent=2) + "\n"
+    if output == "-":
+        sys.stdout.write(text)
+        for name in skipped:
+            print(f'skipped "{name}": installed by the browser, which keeps its URL',
+                  file=sys.stderr)
+        return None
+    try:
+        Path(output).write_text(text, encoding="utf-8")
+    except OSError as error:
+        return {"ok": False, "error": f"could not write the manifest: {error}"}
+    return {"ok": True, "genvej": VERSION, "path": output,
+            "exported": len(manifest["webapps"]), "skipped": skipped}
+
+
 def cli_main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="genvej",
@@ -1715,6 +1831,11 @@ def cli_main(argv: list[str]) -> int:
     apply_cmd.add_argument("--manifest", required=True,
                            help='path to the manifest, or "-" for standard input')
 
+    export_cmd = commands.add_parser(
+        "export", help="write every web app as a manifest that apply reads back")
+    export_cmd.add_argument("--output", required=True,
+                            help='path to write the manifest to, or "-" for standard output')
+
     commands.add_parser("list", help="list every web app found, as JSON")
 
     remove_cmd = commands.add_parser("remove", help="remove one web app")
@@ -1725,6 +1846,10 @@ def cli_main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     if args.command == "apply":
         report = cli_apply(args.manifest)
+    elif args.command == "export":
+        report = cli_export(args.output)
+        if report is None:
+            return 0
     elif args.command == "list":
         report = cli_list()
     else:
