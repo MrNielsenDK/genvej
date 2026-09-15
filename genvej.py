@@ -534,12 +534,13 @@ def wm_class_name(browser: Browser | None, url: str, app_id: str, profile: str) 
 
     Measured on Brave: --app=https://outlook.office.com/mail/ gives the app id
     brave-outlook.office.com__mail_-Default. --class= does not reach the app window
-    itself, so this is the string a window rule has to match.
+    itself, so this is the string a window rule has to match. The profile is cleaned
+    the same way: "Profile 1" is measured as brave-word.cloud.microsoft__-Profile_1.
     """
     if not browser or not browser.wm_prefix:
         return ""
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", chromium_app_name(url, app_id))
-    return f"{browser.wm_prefix}-{name}-{profile}"
+    return f"{browser.wm_prefix}-{name}-{re.sub(r'[^A-Za-z0-9_.-]', '_', profile)}"
 
 
 def window_class(app: WebApp, browsers: list[Browser]) -> str:
@@ -551,6 +552,41 @@ def window_class(app: WebApp, browsers: list[Browser]) -> str:
     if app.browser_installed and app.wm_class:
         return app.wm_class
     return wm_class_name(app.find_browser(browsers), app.url, app.app_id, app.profile)
+
+
+def repair_window_classes(apps: list[WebApp], browsers: list[Browser]) -> int:
+    """Point StartupWMClass in Genvej's own shortcuts at the window's real app id.
+
+    Older files have the icon name there, or a profile with a space where the browser
+    writes an underscore. Neither matches the window, so the taskbar groups it under
+    the browser with the browser's icon. A window rule stored under the old, uncleaned
+    app id is moved along. Returns the number of web apps changed.
+    """
+    changed = 0
+    for app in apps:
+        if app.browser_installed or not app.managed:
+            continue
+        browser = app.find_browser(browsers)
+        wm_class = wm_class_name(browser, app.url, "", app.profile)
+        if not wm_class or wm_class == app.wm_class:
+            continue
+        for target in [app.path, *app.twins]:
+            patch_desktop(target, {"StartupWMClass": wm_class})
+        old_class = wm_class.removesuffix(re.sub(r"[^A-Za-z0-9_.-]", "_", app.profile)) \
+            + app.profile
+        rule = read_window_rule(old_class) if old_class != wm_class else {}
+        if rule:
+            try:
+                write_window_rule(wm_class, app.name, rule.get("size"), rule.get("position"),
+                                  rule.get("lock", False), rule.get("state", ""))
+                remove_window_rule(old_class)
+            except (OSError, ValueError):
+                pass
+        app.wm_class = wm_class
+        changed += 1
+    if changed:
+        refresh_caches()
+    return changed
 
 
 def rule_group(wm_class: str) -> str:
@@ -1317,6 +1353,7 @@ class MainWindow(QtWidgets.QMainWindow):
         current = self.current_app()
         remembered = str(current.path) if current else None
         self.apps = find_web_apps()
+        repair_window_classes(self.apps, self.browsers)
         self.apply_filter()
         if remembered:
             for row in range(self.list_widget.count()):
@@ -1636,6 +1673,7 @@ def cli_apply(source: str) -> dict:
                 "results": []}
 
     browsers = detect_browsers()
+    repair_window_classes(find_web_apps(), browsers)
     results = [cli_apply_entry(entry, browsers) for entry in manifest.get("webapps", [])]
     return {"ok": not any(r["action"] == "failed" for r in results),
             "genvej": VERSION,

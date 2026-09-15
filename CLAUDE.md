@@ -244,6 +244,11 @@ browser's icon. `wm_class_name()` builds the string, and `chromium_app_name()` m
 Chromium's `GenerateApplicationNameFromURL`: host + `_` + path, anything outside
 `[A-Za-z0-9_.-]` as `_`, without scheme, port, query and fragment. Verified against three
 real windows, e.g. `https://outlook.office.com/mail/` → `brave-outlook.office.com__mail_-Default`.
+The profile is cleaned the same way — `Profile 1` was measured as
+`brave-word.cloud.microsoft__-Profile_1`; with the space, the window lands under Brave.
+Files written before either fix are corrected on load by `repair_window_classes()`
+(`MainWindow.reload()` and `genvej apply`), which also moves a window rule stored under the
+old app id. It only touches `X-Genvej=true` files with `--app=`.
 A browser-installed PWA already has the correct `StartupWMClass` in the browser's own file —
 `window_class()` prefers it over guessing.
 
