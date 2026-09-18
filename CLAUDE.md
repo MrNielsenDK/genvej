@@ -239,8 +239,11 @@ strings as UTF-16, so plain `strings` finds nothing and gives a false negative.
 
 **Wayland and window grouping.**
 The program sets its own app id with `QApplication.setDesktopFileName("genvej")` before
-`QApplication` is created. For the shortcuts it *generates*, `--class=<icon name>` is still
-set, but it has been measured that the flag does **not** reach the app window: an `--app=`
+`QApplication` is created. The shortcuts it generates do **not** set `--class`. It has been
+measured that the flag does not reach the app window, and worse: when a shortcut is what
+starts the browser, the whole process takes it on, so every regular Brave window opened later
+gets the app id `outlook` and KDE shows it with the Outlook icon. `strip_class_flag()`
+removes it from older files, called from `repair_window_classes()`. An `--app=`
 window gets the app id `<browser>-<host>_<path>-<profile>`, regardless of `--class`, and
 regardless of whether the shortcut starts the browser itself or the command is forwarded to a
 running process. `--class` only sets the app id on a regular browser window from the same

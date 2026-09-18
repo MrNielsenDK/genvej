@@ -555,6 +555,26 @@ def window_class(app: WebApp, browsers: list[Browser]) -> str:
     return wm_class_name(app.find_browser(browsers), app.url, app.app_id, app.profile)
 
 
+def strip_class_flag(paths: list[Path]) -> bool:
+    """Remove --class= from the Exec line of Genvej's own shortcuts.
+
+    --class never reaches the --app= window, but when the shortcut is what starts the
+    browser, the whole process takes it on: every regular browser window opened later
+    gets that app id and is shown under the web app's icon. Returns True if any file changed.
+    """
+    changed = False
+    for path in paths:
+        entry = parse_desktop(path)
+        if not entry or "Exec" not in entry:
+            continue
+        tokens = exec_tokens(entry["Exec"])
+        kept = [token for token in tokens if not token.startswith("--class=")]
+        if kept != tokens:
+            patch_desktop(path, {"Exec": build_exec(kept)})
+            changed = True
+    return changed
+
+
 def repair_window_classes(apps: list[WebApp], browsers: list[Browser]) -> int:
     """Point StartupWMClass in Genvej's own shortcuts at the window's real app id.
 
@@ -567,6 +587,8 @@ def repair_window_classes(apps: list[WebApp], browsers: list[Browser]) -> int:
     for app in apps:
         if app.browser_installed or not app.managed:
             continue
+        if strip_class_flag([app.path, *app.twins]):
+            changed += 1
         browser = app.find_browser(browsers)
         wm_class = wm_class_name(browser, app.url, "", app.profile)
         if not wm_class or wm_class == app.wm_class:
@@ -1165,7 +1187,6 @@ def save_webapp(values: dict, existing: WebApp | None) -> tuple[Path, str]:
 
     tokens = [*browser.argv,
               f"--profile-directory={profile}",
-              f"--class={icon_name}",
               f"--app={url}"]
     # StartupWMClass must be the app id the browser gives the window, not the icon name —
     # otherwise the taskbar cannot match the window to this file and shows the browser's icon.
