@@ -35,7 +35,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import Qt, Signal
 
-VERSION = "1.1.1"  # install.sh reads this line; releases are tagged v<VERSION>
+VERSION = "1.2.0"  # install.sh reads this line; releases are tagged v<VERSION>
 
 HOME = Path.home()
 APPS_DIR = HOME / ".local/share/applications"
