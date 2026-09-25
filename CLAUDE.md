@@ -99,6 +99,7 @@ g.SNAP_BIN = tmp/"snap-bin"
 g.refresh_caches = lambda: None
 g.kwin_reconfigure = lambda: None           # otherwise the running KWin is notified
 g.flatpak_installed = lambda app_id: False  # otherwise `flatpak info` runs per browser
+g.rename_favorite = lambda old, new: None    # otherwise real GNOME and Plasma pins are edited
 os.environ["XDG_CURRENT_DESKTOP"] = "KDE"   # otherwise the Window group is disabled
 brave = g.Browser("brave", "Brave", ["/snap/bin/brave"], None, "brave")  # wm_prefix is required
 # ... test save_webapp / find_web_apps / move_to_menu / remove_webapp here
@@ -260,6 +261,25 @@ Files written before either fix are corrected on load by `repair_window_classes(
 old app id. It only touches `X-Genvej=true` files with `--app=`.
 A browser-installed PWA already has the correct `StartupWMClass` in the browser's own file —
 `window_class()` prefers it over guessing.
+
+**GNOME Shell only matches a sandboxed browser's window to a prefixed file.**
+For a window from a snap or flatpak, `get_app_from_window_wmclass()` in GNOME Shell's
+`shell-window-tracker.c` accepts a matching `StartupWMClass` only if the desktop file id
+starts with the sandbox id plus `.`; otherwise it falls back to the sandbox's own file and the
+window shows the browser's icon. Mutter takes a snap's sandbox id from the AppArmor label in
+`/proc/<pid>/attr/current` (`snap.brave.brave` → `brave_brave`), and a flatpak's is its app id.
+On GNOME 50 with Snap Brave, `outlook.desktop` was grouped as Brave even though the window's
+app id (read with `WAYLAND_DEBUG=client` on a fresh instance: `set_app_id`) matched exactly.
+Renamed to `brave_brave.outlook.desktop`, the window got the Outlook icon.
+KDE has no such rule. `Browser.desktop_prefix` holds the prefix (`brave_brave.`,
+`com.brave.Browser.`), `sandboxed_name()` applies it in `save_webapp()` and `move_to_menu()`,
+and `repair_window_classes()` renames older files. `rename_favorite()` moves the pins along,
+for both desktops since a machine can have both: GNOME's `favorite-apps`, Plasma's task
+manager `launchers=` (through `org.kde.PlasmaShell.evaluateScript` when plasmashell runs,
+since it writes its in-memory config back; otherwise in `plasma-org.kde.plasma.desktop-appletsrc`),
+and Kickoff's favourites, which are links in kactivitymanagerd's SQLite database — read
+only, and moved through its `ResourcesLinking` D-Bus interface, which also answers under GNOME. GNOME Shell's `Eval` and `Introspect.GetWindows` are both locked, so a
+window's app id on GNOME can only be measured through `WAYLAND_DEBUG`.
 
 **Window size and placement can only be controlled by KWin.**
 Everything below was measured on Wayland with Snap Brave and KWin 6.6.

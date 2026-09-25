@@ -21,6 +21,7 @@ import os
 import re
 import shlex
 import shutil
+import sqlite3
 import subprocess
 import sys
 import urllib.error
@@ -102,6 +103,9 @@ class Browser:
     argv: list[str]
     config_dir: Path | None
     wm_prefix: str = ""
+    # What a shortcut's file name must start with for GNOME Shell to match the window
+    # of a sandboxed browser to it — see sandboxed_name().
+    desktop_prefix: str = ""
 
     def profiles(self) -> list[tuple[str, str]]:
         """[(directory name, display name)] read from the browser's Local State."""
@@ -169,6 +173,17 @@ def snap_config_dir(snap_name: str, native_cfg: str) -> Path:
     return next((path for path in candidates if path.is_dir()), candidates[0])
 
 
+def snap_desktop_prefix(launcher: str) -> str:
+    """The desktop file prefix of a snap's windows, from its launcher in /snap/bin.
+
+    Mutter names a snap's sandbox after its AppArmor label, snap.<snap>.<app>, with the
+    dots as underscores — measured as snap.brave.brave for /snap/bin/brave. A launcher
+    named <snap>.<app> runs that app; one named <snap> runs the app of the same name.
+    """
+    snap, _, app = launcher.partition(".")
+    return f"{snap}_{app or snap}."
+
+
 def detect_browsers() -> list[Browser]:
     found: list[Browser] = []
     for ident, label, binary, app_id, command, native_cfg, flat_cfg, wm in BROWSER_TABLE:
@@ -185,11 +200,12 @@ def detect_browsers() -> list[Browser]:
             found.append(Browser(ident, label, [native], HOME / native_cfg, wm))
         if snap:
             found.append(Browser(f"{ident}-snap", f"{label} (Snap)", [snap],
-                                 snap_config_dir(Path(snap).name, native_cfg), wm))
+                                 snap_config_dir(Path(snap).name, native_cfg), wm,
+                                 snap_desktop_prefix(Path(snap).name)))
         if flatpak_installed(app_id):
             found.append(Browser(f"{ident}-flatpak", f"{label} (Flatpak)",
                                  ["flatpak", "run", f"--command={command}", app_id],
-                                 HOME / flat_cfg, wm))
+                                 HOME / flat_cfg, wm, f"{app_id}."))
     return found
 
 
@@ -575,13 +591,187 @@ def strip_class_flag(paths: list[Path]) -> bool:
     return changed
 
 
+def sandboxed_name(browser: Browser | None, file_name: str) -> str:
+    """The file name GNOME Shell will match a sandboxed browser's windows to.
+
+    For a window from a snap or flatpak, GNOME Shell only accepts a desktop file whose
+    id starts with the sandbox's id and a dot (get_app_from_window_wmclass in
+    shell-window-tracker.c) — otherwise a matching StartupWMClass is ignored, and the
+    window lands under the browser's own file with the browser's icon. Snap Brave's
+    windows therefore need brave_brave.<name>.desktop. KDE has no such rule.
+    """
+    prefix = browser.desktop_prefix if browser else ""
+    return file_name if file_name.startswith(prefix) else prefix + file_name
+
+
+def renamed_entry(entry: str, old_name: str, new_name: str) -> str:
+    """One pinned entry with the file name swapped, if it points at old_name.
+
+    Plasma writes a pin as applications:<file>, file:///…/<file> or, in Kickoff's
+    ordering, the bare file name.
+    """
+    if entry == old_name or entry.endswith((f":{old_name}", f"/{old_name}")):
+        return entry[:len(entry) - len(old_name)] + new_name
+    return entry
+
+
+def renamed_list(value: str, old_name: str, new_name: str) -> str:
+    return ",".join(renamed_entry(entry, old_name, new_name) for entry in value.split(","))
+
+
+def rewrite_list_keys(path: Path, key: str, old_name: str, new_name: str) -> None:
+    """Rename a pin in every `key=` list of a KConfig file, leaving the rest as it is."""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    output = [f"{key}={renamed_list(line[len(key) + 1:], old_name, new_name)}"
+              if line.startswith(f"{key}=") else line for line in lines]
+    if output != lines:
+        try:
+            path.write_text("\n".join(output) + "\n", encoding="utf-8")
+        except OSError:
+            pass
+
+
+def session_bus_call(service: str, object_path: str, method: str, *arguments: str) -> bool:
+    """Call a D-Bus method with string arguments. False if nobody answered."""
+    if not shutil.which("dbus-send"):
+        return False
+    command = ["dbus-send", "--session", "--print-reply", f"--dest={service}", object_path,
+               method, *(f"string:{argument}" for argument in arguments)]
+    try:
+        return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              timeout=15).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def rename_gnome_favorite(old_name: str, new_name: str) -> None:
+    """GNOME's dash (and Ubuntu's dock) pin by desktop file id in favorite-apps."""
+    command = ["gsettings", "get", "org.gnome.shell", "favorite-apps"]
+    try:
+        favorites = subprocess.run(command, capture_output=True, text=True, timeout=5)
+        if favorites.returncode or f"'{old_name}'" not in favorites.stdout:
+            return
+        subprocess.run(["gsettings", "set", "org.gnome.shell", "favorite-apps",
+                        favorites.stdout.strip().replace(f"'{old_name}'", f"'{new_name}'")],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+
+PLASMA_LAUNCHER_SCRIPT = """
+var oldName = %s, newName = %s;
+function renamed(entry) {
+    if (entry === "applications:" + oldName || entry.endsWith("/" + oldName))
+        return entry.slice(0, entry.length - oldName.length) + newName;
+    return entry;
+}
+panels().concat(desktops()).forEach(function (containment) {
+    containment.widgets().forEach(function (widget) {
+        if (widget.type.indexOf("taskmanager") < 0 && widget.type.indexOf("icontasks") < 0)
+            return;
+        widget.currentConfigGroup = ["General"];
+        var launchers = widget.readConfig("launchers", []);
+        if (typeof launchers === "string")
+            launchers = launchers ? launchers.split(",") : [];
+        var changed = launchers.map(renamed);
+        if (changed.join(",") !== launchers.join(","))
+            widget.writeConfig("launchers", changed);
+    });
+});
+"""
+
+
+def rename_plasma_launcher(old_name: str, new_name: str) -> bool:
+    """Plasma's task manager pins a launcher by file name in the applet's config.
+
+    A running plasmashell keeps that config in memory and writes it back, so it is asked
+    through its scripting interface. Without one — for example when Genvej runs on GNOME
+    on a machine that also has Plasma — the file is edited instead. Returns True if
+    plasmashell answered.
+    """
+    script = PLASMA_LAUNCHER_SCRIPT % (json.dumps(old_name), json.dumps(new_name))
+    if session_bus_call("org.kde.plasmashell", "/PlasmaShell",
+                        "org.kde.PlasmaShell.evaluateScript", script):
+        return True
+    rewrite_list_keys(HOME / ".config/plasma-org.kde.plasma.desktop-appletsrc",
+                      "launchers", old_name, new_name)
+    return False
+
+
+def rename_kickoff_favorite(old_name: str, new_name: str, plasma_running: bool) -> None:
+    """Kickoff's favourites are links in kactivitymanagerd's database.
+
+    The database is only read here; the links are moved through the daemon's own D-Bus
+    interface, which starts it if needed. Kickoff also keeps its order in
+    kactivitymanagerd-statsrc, which a running plasmashell owns — a moved favourite then
+    just goes to the end.
+    """
+    database = HOME / ".local/share/kactivitymanagerd/resources/database"
+    if not database.is_file():
+        return
+    try:
+        connection = sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)
+        try:
+            links = connection.execute(
+                "SELECT usedActivity, initiatingAgent FROM ResourceLink "
+                "WHERE targettedResource = ?", (f"applications:{old_name}",)).fetchall()
+        finally:
+            connection.close()
+    except sqlite3.Error:
+        return
+    for activity, agent in links:
+        interface = "org.kde.ActivityManager.ResourcesLinking"
+        if session_bus_call("org.kde.ActivityManager", "/ActivityManager/Resources/Linking",
+                            f"{interface}.LinkResourceToActivity",
+                            agent, f"applications:{new_name}", activity):
+            session_bus_call("org.kde.ActivityManager", "/ActivityManager/Resources/Linking",
+                             f"{interface}.UnlinkResourceFromActivity",
+                             agent, f"applications:{old_name}", activity)
+    if links and not plasma_running:
+        rewrite_list_keys(HOME / ".config/kactivitymanagerd-statsrc",
+                          "ordering", old_name, new_name)
+
+
+def rename_favorite(old_name: str, new_name: str) -> None:
+    """Keep a web app pinned when its desktop file is renamed.
+
+    Covers GNOME's dash, Plasma's task manager and Kickoff's favourites, whichever
+    desktop is running — a machine can have both, and the pins of the other one are
+    in its files.
+    """
+    rename_gnome_favorite(old_name, new_name)
+    plasma_running = rename_plasma_launcher(old_name, new_name)
+    rename_kickoff_favorite(old_name, new_name, plasma_running)
+
+
+def rename_for_sandbox(app: WebApp, browser: Browser | None) -> bool:
+    """Give an existing shortcut the file name sandboxed_name() asks for.
+
+    Returns True if the file was renamed. A name that is already taken is left alone.
+    """
+    target = app.path.with_name(sandboxed_name(browser, app.path.name))
+    if target == app.path or target.exists():
+        return False
+    try:
+        app.path.rename(target)
+    except OSError:
+        return False
+    rename_favorite(app.path.name, target.name)
+    app.path = target
+    return True
+
+
 def repair_window_classes(apps: list[WebApp], browsers: list[Browser]) -> int:
     """Point StartupWMClass in Genvej's own shortcuts at the window's real app id.
 
     Older files have the icon name there, or a profile with a space where the browser
     writes an underscore. Neither matches the window, so the taskbar groups it under
     the browser with the browser's icon. A window rule stored under the old, uncleaned
-    app id is moved along. Returns the number of web apps changed.
+    app id is moved along. A shortcut for a sandboxed browser is renamed so GNOME Shell
+    accepts it. Returns the number of web apps changed.
     """
     changed = 0
     for app in apps:
@@ -590,6 +780,8 @@ def repair_window_classes(apps: list[WebApp], browsers: list[Browser]) -> int:
         if strip_class_flag([app.path, *app.twins]):
             changed += 1
         browser = app.find_browser(browsers)
+        if rename_for_sandbox(app, browser):
+            changed += 1
         wm_class = wm_class_name(browser, app.url, "", app.profile)
         if not wm_class or wm_class == app.wm_class:
             continue
@@ -1177,9 +1369,12 @@ def save_webapp(values: dict, existing: WebApp | None) -> tuple[Path, str]:
         path = existing.path
         icon_name = existing.icon if existing.icon and not existing.icon.startswith("/") \
             else slugify(name)
+        wanted = sandboxed_name(browser, path.name)
+        if wanted != path.name:
+            # Switched to a sandboxed browser: the file needs its prefix.
+            path = unique_desktop_path(Path(wanted).stem)
     else:
-        slug = slugify(name)
-        path = unique_desktop_path(slug)
+        path = unique_desktop_path(sandboxed_name(browser, slugify(name)))
         icon_name = path.stem
 
     if values["image"] is not None:
@@ -1209,6 +1404,12 @@ def save_webapp(values: dict, existing: WebApp | None) -> tuple[Path, str]:
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
     path.chmod(0o644)
+    if existing and path != existing.path:
+        try:
+            existing.path.unlink()
+        except OSError:
+            pass
+        rename_favorite(existing.path.name, path.name)
     refresh_caches()
     apply_window_rule(values, wm_class)
     return path, icon_name
@@ -1243,16 +1444,16 @@ def move_to_menu(app: WebApp, browsers: list[Browser]) -> Path:
     Snap Brave cannot create a menu entry and icons itself — xdg-desktop-menu does not
     exist inside the snap — so the only shortcut is on the desktop. The file name is
     kept, every Exec line is pointed at /snap/bin, and the icon is taken from the
-    browser's profile.
+    browser's profile. The file gets the snap's prefix, so GNOME Shell can match it.
     """
-    target = APPS_DIR / app.path.name
+    browser = app.find_browser(browsers)
+    target = APPS_DIR / sandboxed_name(browser, app.path.name)
     if target.exists():
         raise FileExistsError(f"{target} already exists")
     lines = app.path.read_text(encoding="utf-8", errors="replace").splitlines()
     for index, line in enumerate(lines):
         if line.startswith("Exec="):
             lines[index] = "Exec=" + resolve_snap_exec(line[len("Exec="):])
-    browser = app.find_browser(browsers)
     if (app.app_id and browser and app.icon and "/" not in app.icon
             and not any(ICON_ROOT.glob(f"*/apps/{app.icon}.png"))):
         image = browser_pwa_icon(browser, app.profile, app.app_id)
